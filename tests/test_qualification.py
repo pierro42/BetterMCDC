@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Qualification test suite for the MC/DC analysis of main.py.
+Qualification test suite for the MC/DC analysis (package mcdc).
 
 Every expected result below is transcribed from one of these published
-documents; nothing is derived from main.py itself (see tests/SOURCES.md):
+documents; nothing is derived from the tool itself (see tests/SOURCES.md):
 
   [S1] NASA/TM-2001-210876, "A Practical Tutorial on Modified
        Condition/Decision Coverage", Hayhurst, Veerhusen, Chilenski,
@@ -26,7 +26,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import main  # noqa: E402
+import mcdc  # noqa: E402
 
 DATA = Path(__file__).resolve().parent / "data" / "ar0118_appendix_c.tsv"
 
@@ -51,9 +51,9 @@ def pair(a, b):
 
 def exact(text, mode):
     """Run the exact engine: decision, truth table, independence pairs."""
-    decision = main.parse_decision(text)
-    rows = main.truth_table(decision)
-    return decision, rows, main.independence_pairs(decision, rows, mode)
+    decision = mcdc.parse_decision(text)
+    rows = mcdc.truth_table(decision)
+    return decision, rows, mcdc.independence_pairs(decision, rows, mode)
 
 
 def uncovered(pairs, tests, conditions=None):
@@ -95,7 +95,7 @@ class S1BuildingBlocks(unittest.TestCase):
 
     def check_minimum(self, text, mode, expected_rows):
         decision, rows, pairs = exact(text, mode)
-        selected, _, optimal = main.minimal_mcdc_set(pairs, forest_bound=mode == "unique-cause")
+        selected, _, optimal = mcdc.minimal_mcdc_set(pairs, forest_bound=mode == "unique-cause")
         self.assertTrue(optimal)
         self.assertEqual(selected, {row(t) for t in expected_rows})
 
@@ -105,7 +105,7 @@ class S1BuildingBlocks(unittest.TestCase):
         for mode in ("unique-cause", "masking"):
             with self.subTest(mode=mode):
                 self.check_minimum(AND3, mode, ["TTT", "FTT", "TFT", "TTF"])
-                rows = main.truth_table(main.parse_decision(AND3))
+                rows = mcdc.truth_table(mcdc.parse_decision(AND3))
                 for t, out in zip(["TTT", "FTT", "TFT", "TTF"], "TFFF"):
                     self.assertEqual(rows[row(t)][1], out == "T")
 
@@ -115,7 +115,7 @@ class S1BuildingBlocks(unittest.TestCase):
         for mode in ("unique-cause", "masking"):
             with self.subTest(mode=mode):
                 self.check_minimum(OR3, mode, ["FFF", "TFF", "FTF", "FFT"])
-                rows = main.truth_table(main.parse_decision(OR3))
+                rows = mcdc.truth_table(mcdc.parse_decision(OR3))
                 for t, out in zip(["FFF", "TFF", "FTF", "FFT"], "FTTT"):
                     self.assertEqual(rows[row(t)][1], out == "T")
 
@@ -131,7 +131,7 @@ class S1BuildingBlocks(unittest.TestCase):
                     self.assertEqual(rows[row(t)][1], outputs[n] == "T")
                 for combo in ((1, 2, 3), (1, 2, 4), (1, 3, 4), (2, 3, 4)):
                     self.assertEqual(uncovered(pairs, [table7[n] for n in combo]), set())
-                selected, _, optimal = main.minimal_mcdc_set(
+                selected, _, optimal = mcdc.minimal_mcdc_set(
                     pairs, forest_bound=mode == "unique-cause")
                 self.assertEqual(len(selected), 3)
                 self.assertTrue(optimal)
@@ -229,7 +229,7 @@ class S1WorkedExamples(unittest.TestCase):
         tc = {1: "TTFF", 2: "TFFF", 3: "FTFF", 4: "FTFT", 5: "FTTF"}
         decision, rows, pairs = exact(EX33A, "masking")
         self.assertEqual(uncovered(pairs, list(tc.values())), {"A"})
-        ex3_rows = main.truth_table(main.parse_decision(EX3))
+        ex3_rows = mcdc.truth_table(mcdc.parse_decision(EX3))
         for t in tc.values():
             self.assertEqual(rows[row(t)][1], ex3_rows[row(t)][1], t)
 
@@ -339,7 +339,7 @@ class S2MinimumNumberOfTests(unittest.TestCase):
                 with self.subTest(text=text, mode=mode):
                     _, _, pairs = exact(text, mode)
                     covered = sum(1 for p in pairs.values() if p)
-                    selected, choice, _ = main.minimal_mcdc_set(
+                    selected, choice, _ = mcdc.minimal_mcdc_set(
                         pairs, forest_bound=mode == "unique-cause")
                     self.assertGreaterEqual(len(selected), lower_bound(mode, covered))
                     self.assertEqual(set(choice), {c for c, p in pairs.items() if p})
@@ -373,7 +373,7 @@ class S2AppendixC(unittest.TestCase):
         for entry in appendix_c():
             if entry["converted"]:
                 with self.subTest(id=entry["id"], raw=entry["raw"]):
-                    decision = main.parse_decision(entry["converted"])
+                    decision = mcdc.parse_decision(entry["converted"])
                     self.assertEqual(len(decision.names), int(entry["conditions"]))
 
     def test_response_profiles(self):
@@ -390,7 +390,7 @@ class S2AppendixC(unittest.TestCase):
             with self.subTest(id=entry["id"], raw=entry["raw"]):
                 self.assertEqual(int(profile.replace("T", "1").replace("F", "0"), 2),
                                  int(entry["profile_number"]), "transcription")
-                rows = main.truth_table(main.parse_decision(entry["converted"]))
+                rows = mcdc.truth_table(mcdc.parse_decision(entry["converted"]))
                 self.assertEqual("".join("T" if r else "F" for _, r in rows), profile)
                 checked += 1
         self.assertGreater(checked, 600)
@@ -428,8 +428,8 @@ class InputSyntax(unittest.TestCase):
                                   ("R = b != !c", "R = b != (not c)"),
                                   ("R = !(a && b) || !!c", "R = (not (a and b)) or not (not c)")):
             with self.subTest(text=symbols):
-                self.assertEqual(main.parse_decision(symbols).nodes,
-                                 main.parse_decision(keywords).nodes)
+                self.assertEqual(mcdc.parse_decision(symbols).nodes,
+                                 mcdc.parse_decision(keywords).nodes)
 
 
 # ---------------------------------------------------------------------------
@@ -447,13 +447,13 @@ class PairSearchEngine(unittest.TestCase):
             for mode in ("unique-cause", "masking"):
                 with self.subTest(text=text, mode=mode):
                     decision, rows, pairs = exact(text, mode)
-                    result = main.analyse_mcdc(decision, mode, max_exact=0)
+                    result = mcdc.analyse_mcdc(decision, mode, max_exact=0)
                     self.assertEqual(result.engine, "pair-search")
                     for cond, plist in pairs.items():
                         expected = "covered" if plist else "impossible"
                         self.assertEqual(result.status[cond], expected, cond)
-                    check = (main.is_masking_pair if mode == "masking"
-                             else main.is_unique_cause_pair)
+                    check = (mcdc.is_masking_pair if mode == "masking"
+                             else mcdc.is_unique_cause_pair)
                     for cond, (i, j) in result.choice.items():
                         self.assertTrue(check(decision, result.tests[i][0],
                                               result.tests[j][0], cond), cond)
@@ -462,12 +462,12 @@ class PairSearchEngine(unittest.TestCase):
     def test_section_3_1_1_choice_in_published_list(self):
         """[S2] 3.1.1: whatever pair the search picks for A must be one of the
         published pairs."""
-        decision = main.parse_decision(S2_A_OR_BC)
+        decision = mcdc.parse_decision(S2_A_OR_BC)
         published = {"unique-cause": {(0, 4), (1, 5), (2, 6)},
                      "masking": {(f, t) for f in (0, 1, 2) for t in (4, 5, 6)}}
         for mode, expected in published.items():
             with self.subTest(mode=mode):
-                result = main.analyse_mcdc(decision, mode, max_exact=0)
+                result = mcdc.analyse_mcdc(decision, mode, max_exact=0)
                 self.assertIn(result.choice["A"], expected)
 
     def test_published_pairs_pass_direct_check(self):
@@ -479,8 +479,8 @@ class PairSearchEngine(unittest.TestCase):
                  (S2_FIG10, "B#1", "TFF", "TTF")]
         for text, cond, a, b in cases:
             with self.subTest(text=text, cond=cond):
-                decision = main.parse_decision(text)
-                self.assertTrue(main.is_masking_pair(decision, vec(a), vec(b), cond))
+                decision = mcdc.parse_decision(text)
+                self.assertTrue(mcdc.is_masking_pair(decision, vec(a), vec(b), cond))
 
 
 # ---------------------------------------------------------------------------
@@ -498,11 +498,11 @@ class AppendixCCrossCheck(unittest.TestCase):
         for entry in appendix_c():
             if not entry["converted"] or int(entry["conditions"]) > self.EXACT_LIMIT:
                 continue
-            decision = main.parse_decision(entry["converted"])
+            decision = mcdc.parse_decision(entry["converted"])
             for mode in ("unique-cause", "masking"):
                 with self.subTest(id=entry["id"], mode=mode):
-                    reference = main.analyse_mcdc(decision, mode, max_exact=self.EXACT_LIMIT)
-                    search = main.analyse_mcdc(decision, mode, max_exact=0)
+                    reference = mcdc.analyse_mcdc(decision, mode, max_exact=self.EXACT_LIMIT)
+                    search = mcdc.analyse_mcdc(decision, mode, max_exact=0)
                     self.assertEqual(reference.engine, "exact")
                     self.assertEqual(search.status, reference.status)
 
@@ -513,13 +513,13 @@ class AppendixCCrossCheck(unittest.TestCase):
         for entry in appendix_c():
             if not entry["converted"] or int(entry["conditions"]) <= self.EXACT_LIMIT:
                 continue
-            decision = main.parse_decision(entry["converted"])
+            decision = mcdc.parse_decision(entry["converted"])
             for mode in ("unique-cause", "masking"):
                 with self.subTest(id=entry["id"], mode=mode):
-                    result = main.analyse_mcdc(decision, mode, max_exact=0)
+                    result = mcdc.analyse_mcdc(decision, mode, max_exact=0)
                     self.assertNotIn("unknown", result.status.values())
-                    check = (main.is_masking_pair if mode == "masking"
-                             else main.is_unique_cause_pair)
+                    check = (mcdc.is_masking_pair if mode == "masking"
+                             else mcdc.is_unique_cause_pair)
                     for cond, (i, j) in result.choice.items():
                         self.assertTrue(check(decision, result.tests[i][0],
                                               result.tests[j][0], cond))

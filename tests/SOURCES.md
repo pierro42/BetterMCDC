@@ -19,6 +19,19 @@ source of every expected result in the suite. They use the definitions the tool 
 - **Masking MC/DC:** graph coloring, S2 §3.1.2, which is also the gate analysis of S1 §3.2.
 - **Minimum number of tests:** S2 §5.1, Theorems 1 and 4.
 
+## Code under test
+
+`main.py` is only the command line; the tests call the `mcdc` package directly.
+
+| Module | Contents | Review against |
+|---|---|---|
+| `mcdc/decision.py` | input language → conditions and expression tree | tool requirements (input language) |
+| `mcdc/tree.py` | evaluation, truth table, `is_masking_pair`, `is_unique_cause_pair` | S2 §3.1.1 and §3.1.2, line by line |
+| `mcdc/exact.py` | all pairs from the truth table, minimal set, `lower_bound` | S2 §3.1, §5.1 |
+| `mcdc/pair_search.py` | engine for large expressions | every pair it reports is checked with `tree.py` before output |
+| `mcdc/analysis.py` | engine choice (`--max-exact`) | |
+| `mcdc/report.py` | text / CSV output | |
+
 ## Notation used in the tests
 
 - **Test vectors:** written as in the sources, first condition first ("TFTF"). Row numbers come from them with the first input as the most significant bit, which is also S2's numbering ("4:(TFF)").
