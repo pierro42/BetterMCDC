@@ -18,6 +18,12 @@ from .tree import row_number, truth_table
 DEFAULT_MAX_EXACT = 10
 
 
+def _bound(decision, mode, covered):
+    """Lower bound for the covered conditions (exact.lower_bound)."""
+    inputs = {decision.variable[decision.conditions.index(c)] for c in covered}
+    return lower_bound(mode, len(covered), len(inputs))
+
+
 class Analysis(NamedTuple):
     engine: str                          # "exact" or "pair-search"
     tests: Dict[int, tuple]              # row number -> (inputs, result)
@@ -25,7 +31,7 @@ class Analysis(NamedTuple):
     status: Dict[str, str]               # condition -> covered / impossible / unknown
     pair_counts: Dict[str, int]          # condition -> number of pairs (exact engine)
     optimal: bool                        # the set is proven minimal
-    lower_bound: int                     # [S2] 5.1, Theorem 1 or 4
+    lower_bound: int                     # [S2] 5.1, see exact.lower_bound
 
 
 def analyse_mcdc(decision, mode="masking", max_exact=DEFAULT_MAX_EXACT,
@@ -40,16 +46,15 @@ def analyse_mcdc(decision, mode="masking", max_exact=DEFAULT_MAX_EXACT,
     if len(decision.names) <= max_exact:
         rows = truth_table(decision)
         pairs = independence_pairs(decision, rows, mode)
+        bound = _bound(decision, mode, [c for c in pairs if pairs[c]])
         selected, choice, optimal = minimal_mcdc_set(
-            pairs, forest_bound=mode == "unique-cause", time_limit=time_limit)
+            pairs, forest_bound=mode == "unique-cause", time_limit=time_limit, bound=bound)
         status = {c: "covered" if pairs[c] else "impossible" for c in decision.conditions}
-        covered = sum(1 for p in pairs.values() if p)
         return Analysis("exact", {i: rows[i] for i in sorted(selected)}, choice, status,
-                        {c: len(p) for c, p in pairs.items()}, optimal,
-                        lower_bound(mode, covered))
+                        {c: len(p) for c, p in pairs.items()}, optimal, bound)
 
     tests, choice, status = pair_search_set(decision, mode, budget)
-    bound = lower_bound(mode, len(choice))
+    bound = _bound(decision, mode, list(choice))
     found = {row_number(t): (t, bool(decision.evaluate([t[v] for v in decision.variable])))
              for t in tests}
     return Analysis("pair-search", dict(sorted(found.items())), choice, status, {},

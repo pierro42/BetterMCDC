@@ -20,6 +20,7 @@ Run from the project folder:
 """
 
 import csv
+import itertools
 import math
 import sys
 import unittest
@@ -324,6 +325,179 @@ class S2Definitions(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# [S2] sections 3.2.2, 5.1 and 7.1 - Unique-Cause + Masking MC/DC
+# ---------------------------------------------------------------------------
+#
+# [S2] 3.2.2 (p.20): a unique cause for every uncoupled condition; for a
+# strongly coupled condition, masking allowed for that condition only, all
+# other conditions remaining fixed. [S2] 5.1 (p.28-29) and 7.1 (p.54-58)
+# state it on the n-cube of the inputs: an "edge" transition (the two tests
+# differ in just one value) is the only one allowed by the unique-cause
+# forms, and a Unique-Cause + Masking coverage set exists when every
+# condition has an edge independence pair.
+#
+# Tables 32-35 (p.55-58) list every independence pair of four expressions
+# with its transition type. Transcribed below: "E" = Edge, "D" = Face or
+# Internal Diagonal. Rows are numbered as in the report (A = most
+# significant bit). In Table 34, the pair (4, 5) is printed on the line of
+# "C (1st occurrence)" (the text layer adds a stray "B" to that label).
+
+S2_T32 = case("F = A and (B or C)")                 # also Table 14 (5.1, p.29)
+S2_T33 = case("F = (A and B) or (A and C)")
+S2_T34 = case("F = (A and not B and C) or (A and B and not C) or (A and B and C)")
+S2_T35 = case("F = (A and B) or (not A and C)")
+S2_FIG40 = case("F = (A and B) or (A and not B)")
+S2_FIG41 = case("F = (not A and not B) or (not A and B) or (A and not B)")
+
+S2_TABLES = {
+    S2_T32: {"A": [(1, 5, "E"), (1, 6, "D"), (1, 7, "D"), (2, 5, "D"), (2, 6, "E"),
+                   (2, 7, "D"), (3, 5, "D"), (3, 6, "D"), (3, 7, "E")],
+             "B": [(4, 6, "E")],
+             "C": [(4, 5, "E")]},
+    S2_T33: {"A#1": [(2, 6, "E"), (3, 6, "D")],
+             "B": [(4, 6, "E")],
+             "A#2": [(1, 5, "E"), (3, 5, "D")],
+             "C": [(4, 5, "E")]},
+    S2_T34: {"A#1": [(1, 5, "E")], "B#1": [], "C#1": [(4, 5, "E")],
+             "A#2": [(2, 6, "E")], "B#2": [(4, 6, "E")], "C#2": [],
+             "A#3": [(3, 7, "E")], "B#3": [], "C#3": []},
+    S2_T35: {"A#1": [(2, 6, "E"), (2, 7, "D")],
+             "B": [(4, 6, "E"), (4, 7, "D"), (5, 6, "D"), (5, 7, "E")],
+             "A#2": [(1, 5, "E"), (1, 3, "E")],
+             "C": [(0, 1, "E"), (0, 3, "D"), (1, 2, "D"), (2, 3, "E")]},
+}
+
+# Printed pairs that contradict the report's own definition
+SOURCE_INCONSISTENT_PAIRS = {
+    (S2_T35, "A#2", (1, 3)): "Table 35 prints (1, 3) as an Edge pair of A (2nd "
+                             "occurrence), but rows 1 (FFT) and 3 (FTT) differ in B, "
+                             "not A, and both give True: no form of 3.1.1 accepts it.",
+}
+
+
+def published(text, cond, kinds="ED"):
+    """Pairs of S2_TABLES for `cond`, of the given transition kinds, without
+    the inconsistent ones."""
+    return sorted((i, j) for i, j, kind in S2_TABLES[text][cond]
+                  if kind in kinds and (text, cond, (i, j)) not in SOURCE_INCONSISTENT_PAIRS)
+
+
+class S2UniqueCauseMasking(unittest.TestCase):
+
+    def test_tables_32_to_35_masking_pairs(self):
+        """[S2] 7.1, Tables 32-35: every independence pair listed (any
+        transition type) is exactly the tool's masking pair list. Exception:
+        the inconsistent pair of Table 35 (see SOURCE_INCONSISTENT_PAIRS)
+        must not be a pair; A (2nd occurrence) is then only checked to
+        contain the other published pair (tests/SOURCES.md has a hand check
+        of the tool's other pair, (3, 5))."""
+        for text, table in S2_TABLES.items():
+            decision, _, pairs = exact(text, "masking")
+            self.assertEqual(decision.conditions, list(table))
+            for cond in table:
+                with self.subTest(text=text, cond=cond):
+                    inconsistent = [p for t, c, p in SOURCE_INCONSISTENT_PAIRS
+                                    if (t, c) == (text, cond)]
+                    if inconsistent:
+                        for p in inconsistent:
+                            self.assertNotIn(p, pairs[cond])
+                        self.assertLessEqual(set(published(text, cond)), set(pairs[cond]))
+                    else:
+                        self.assertEqual(sorted(pairs[cond]), published(text, cond))
+
+    def test_tables_32_to_35_unique_cause_masking_pairs(self):
+        """[S2] 7.1, Tables 32-35: the Unique-Cause + Masking pairs are
+        exactly the Edge pairs of the tables."""
+        for text, table in S2_TABLES.items():
+            _, _, pairs = exact(text, "unique-cause+masking")
+            for cond in table:
+                with self.subTest(text=text, cond=cond):
+                    self.assertEqual(sorted(pairs[cond]), published(text, cond, "E"))
+
+    def test_section_7_1_coverage_sets(self):
+        """[S2] 7.1, p.55-57: A and (B or C) has a Unique-Cause and a
+        Unique-Cause + Masking coverage set; (A and B) or (A and C) and
+        (A and B) or (not A and C) have no Unique-Cause test set but have a
+        Unique-Cause + Masking and a Masking coverage set; the Table 34
+        expression has no coverage set for any form."""
+        expected = {S2_T32: {"unique-cause": True, "unique-cause+masking": True,
+                             "masking": True},
+                    S2_T33: {"unique-cause": False, "unique-cause+masking": True,
+                             "masking": True},
+                    S2_T35: {"unique-cause": False, "unique-cause+masking": True,
+                             "masking": True},
+                    S2_T34: {"unique-cause": False, "unique-cause+masking": False,
+                             "masking": False}}
+        for text, forms in expected.items():
+            for mode, exists in forms.items():
+                with self.subTest(text=text, mode=mode):
+                    _, _, pairs = exact(text, mode)
+                    self.assertEqual(all(pairs.values()), exists)
+
+    def test_figure_40(self):
+        """[S2] 7.1, Figure 40, p.54: (A and B) or (A and not B). The first
+        occurrence of A is shown by the transition (1,1) - (0,1); the first
+        occurrence of B can't be shown ((1,1) - (1,0) doesn't change the
+        result); the expression can't be MC/DC tested under any definition."""
+        for mode in mcdc.MODES:
+            with self.subTest(mode=mode):
+                _, _, pairs = exact(S2_FIG40, mode)
+                if mode != "unique-cause":     # A is coupled: no unique-cause pair (3.2.1)
+                    self.assertIn(pair("TT", "FT"), pairs["A#1"])
+                self.assertEqual(pairs["B#1"], [])
+                self.assertFalse(all(pairs.values()))
+
+    def test_figure_41(self):
+        """[S2] 7.1, Figure 41, p.54-55: (not A and not B) or (not A and B) or
+        (A and not B). The second occurrence of A is shown by (0,1) - (1,1),
+        the third occurrence of B by (1,0) - (1,1); the independence of the
+        other conditions can't be shown."""
+        for mode in ("unique-cause+masking", "masking"):
+            with self.subTest(mode=mode):
+                _, _, pairs = exact(S2_FIG41, mode)
+                self.assertEqual({c: p for c, p in pairs.items() if p},
+                                 {"A#2": [pair("FT", "TT")], "B#3": [pair("TF", "TT")]})
+
+    def test_section_3_2_2_definition(self):
+        """[S2] 3.2.2, p.20, on every expression of the suite:
+        - an uncoupled condition requires a unique cause: its Unique-Cause +
+          Masking pairs are exactly its Unique-Cause pairs;
+        - a coupled condition may be masked for that condition only, all
+          other conditions remaining fixed: its pairs are the Masking pairs
+          where only its own input changes."""
+        for text in ALL_EXPRESSIONS:
+            decision, rows, ucm = exact(text, "unique-cause+masking")
+            _, _, uc = exact(text, "unique-cause")
+            _, _, masking = exact(text, "masking")
+            for k, cond in enumerate(decision.conditions):
+                with self.subTest(text=text, cond=cond):
+                    v = decision.variable[k]
+                    if decision.variable.count(v) == 1:
+                        self.assertEqual(ucm[cond], uc[cond])
+                    else:
+                        only_v = [(i, j) for i, j in masking[cond]
+                                  if [u for u in range(len(decision.names))
+                                      if rows[i][0][u] != rows[j][0][u]] == [v]]
+                        self.assertEqual(ucm[cond], only_v)
+
+    def test_published_pairs_direct_check(self):
+        """The direct check is_unique_cause_masking_pair accepts every Edge
+        pair of Tables 32-35 and rejects every diagonal one, which
+        is_masking_pair accepts."""
+        for text in S2_TABLES:
+            decision, rows, _ = exact(text, "masking")
+            for cond in S2_TABLES[text]:
+                for kinds, expected in (("E", True), ("D", False)):
+                    for i, j in published(text, cond, kinds):
+                        with self.subTest(text=text, cond=cond, pair=(i, j)):
+                            x, y = rows[i][0], rows[j][0]
+                            self.assertTrue(mcdc.is_masking_pair(decision, x, y, cond))
+                            self.assertEqual(
+                                mcdc.is_unique_cause_masking_pair(decision, x, y, cond),
+                                expected)
+
+
+# ---------------------------------------------------------------------------
 # [S2] section 5.1 - minimum number of tests
 # ---------------------------------------------------------------------------
 
@@ -332,17 +506,72 @@ class S2MinimumNumberOfTests(unittest.TestCase):
     def test_theorems_1_and_4(self):
         """[S2] 5.1, Theorems 1 and 4, p.27-33: a unique-cause set needs at
         least N + 1 tests, a masking set at least RUTW(2*SQRT(M)) tests, for
-        N (M) conditions with an independence pair. The minimal sets found by
-        the tool can never be smaller."""
+        N (M) conditions with an independence pair. Theorem 1 also covers
+        Unique-Cause + Masking when each input occurs once. The minimal sets
+        found by the tool (analyse_mcdc, with its own bounds) can never be
+        smaller."""
         for text in ALL_EXPRESSIONS:
-            for mode in ("unique-cause", "masking"):
+            for mode in mcdc.MODES:
                 with self.subTest(text=text, mode=mode):
-                    _, _, pairs = exact(text, mode)
-                    covered = sum(1 for p in pairs.values() if p)
-                    selected, choice, _ = mcdc.minimal_mcdc_set(
-                        pairs, forest_bound=mode == "unique-cause")
-                    self.assertGreaterEqual(len(selected), lower_bound(mode, covered))
-                    self.assertEqual(set(choice), {c for c, p in pairs.items() if p})
+                    decision, _, pairs = exact(text, mode)
+                    covered = [c for c, p in pairs.items() if p]
+                    result = mcdc.analyse_mcdc(decision, mode)
+                    self.assertEqual(set(result.choice), set(covered))
+                    if mode == "unique-cause" or (
+                            mode == "unique-cause+masking"
+                            and len(set(decision.variable)) == len(decision.variable)):
+                        bound = lower_bound("unique-cause", len(covered))
+                    else:
+                        # a Unique-Cause + Masking set is also a Masking set
+                        bound = lower_bound("masking", len(covered))
+                    self.assertGreaterEqual(len(result.tests), bound)
+
+    def test_theorem_2_not_applied(self):
+        """[S2] 5.1, Theorem 2, p.31 says a Unique-Cause + Masking set needs at
+        least M + 1 tests for M occurrences. (B and not D) or (not B and D) has
+        M = 4 occurrences but only 4 possible tests, and each occurrence has a
+        Unique-Cause + Masking pair among them (hand check in
+        tests/SOURCES.md; each pair is also checked here by the direct
+        definition). The tool must therefore not use Theorem 2: it finds the
+        4-test set and proves it minimal. Derived check, not a published
+        result."""
+        decision, rows, pairs = exact("F = (B and not D) or (not B and D)",
+                                      "unique-cause+masking")
+        self.assertEqual(len(decision.conditions), 4)
+        for cond, plist in pairs.items():
+            self.assertTrue(plist, cond)
+            for i, j in plist:
+                self.assertTrue(mcdc.is_unique_cause_masking_pair(
+                    decision, rows[i][0], rows[j][0], cond))
+        result = mcdc.analyse_mcdc(decision, "unique-cause+masking")
+        self.assertEqual(len(result.tests), 4)
+        self.assertTrue(result.optimal)
+        self.assertLessEqual(result.lower_bound, 4)
+
+    def test_minimal_sets_by_exhaustive_search(self):
+        """Derived check, independent of the branch and bound: for every
+        expression of the suite with at most 4 inputs, the smallest set found
+        by trying every subset of rows (smallest first) has the same size as
+        the tool's set, and the tool's lower bound is not above it. A bound
+        that is too high would make the tool stop early and claim a
+        non-minimal set as proven minimal."""
+        for text in ALL_EXPRESSIONS:
+            decision = mcdc.parse_decision(text)
+            if len(decision.names) > 4:
+                continue
+            for mode in mcdc.MODES:
+                with self.subTest(text=text, mode=mode):
+                    _, rows, pairs = exact(text, mode)
+                    needed = [p for p in pairs.values() if p]
+                    smallest = next(
+                        size for size in range(len(rows) + 1)
+                        for subset in itertools.combinations(range(len(rows)), size)
+                        if all(any(i in subset and j in subset for i, j in p)
+                               for p in needed))
+                    result = mcdc.analyse_mcdc(decision, mode)
+                    self.assertEqual(len(result.tests), smallest)
+                    self.assertTrue(result.optimal)
+                    self.assertLessEqual(result.lower_bound, smallest)
 
 
 # ---------------------------------------------------------------------------
@@ -413,7 +642,7 @@ class InputSyntax(unittest.TestCase):
             symbols = re.sub(r"\bnot\s+", "!", symbols)
             if symbols == text:
                 continue
-            for mode in ("unique-cause", "masking"):
+            for mode in mcdc.MODES:
                 with self.subTest(text=symbols, mode=mode):
                     d1, rows1, pairs1 = exact(text, mode)
                     d2, rows2, pairs2 = exact(symbols, mode)
@@ -444,7 +673,7 @@ class PairSearchEngine(unittest.TestCase):
 
     def test_same_coverage_as_exact_engine(self):
         for text in ALL_EXPRESSIONS:
-            for mode in ("unique-cause", "masking"):
+            for mode in mcdc.MODES:
                 with self.subTest(text=text, mode=mode):
                     decision, rows, pairs = exact(text, mode)
                     result = mcdc.analyse_mcdc(decision, mode, max_exact=0)
@@ -452,8 +681,7 @@ class PairSearchEngine(unittest.TestCase):
                     for cond, plist in pairs.items():
                         expected = "covered" if plist else "impossible"
                         self.assertEqual(result.status[cond], expected, cond)
-                    check = (mcdc.is_masking_pair if mode == "masking"
-                             else mcdc.is_unique_cause_pair)
+                    check = mcdc.PAIR_CHECK[mode]
                     for cond, (i, j) in result.choice.items():
                         self.assertTrue(check(decision, result.tests[i][0],
                                               result.tests[j][0], cond), cond)
@@ -464,6 +692,8 @@ class PairSearchEngine(unittest.TestCase):
         published pairs."""
         decision = mcdc.parse_decision(S2_A_OR_BC)
         published = {"unique-cause": {(0, 4), (1, 5), (2, 6)},
+                     # A is uncoupled: unique cause required ([S2] 3.2.2)
+                     "unique-cause+masking": {(0, 4), (1, 5), (2, 6)},
                      "masking": {(f, t) for f in (0, 1, 2) for t in (4, 5, 6)}}
         for mode, expected in published.items():
             with self.subTest(mode=mode):
@@ -499,7 +729,7 @@ class AppendixCCrossCheck(unittest.TestCase):
             if not entry["converted"] or int(entry["conditions"]) > self.EXACT_LIMIT:
                 continue
             decision = mcdc.parse_decision(entry["converted"])
-            for mode in ("unique-cause", "masking"):
+            for mode in mcdc.MODES:
                 with self.subTest(id=entry["id"], mode=mode):
                     reference = mcdc.analyse_mcdc(decision, mode, max_exact=self.EXACT_LIMIT)
                     search = mcdc.analyse_mcdc(decision, mode, max_exact=0)
@@ -514,12 +744,11 @@ class AppendixCCrossCheck(unittest.TestCase):
             if not entry["converted"] or int(entry["conditions"]) <= self.EXACT_LIMIT:
                 continue
             decision = mcdc.parse_decision(entry["converted"])
-            for mode in ("unique-cause", "masking"):
+            for mode in mcdc.MODES:
                 with self.subTest(id=entry["id"], mode=mode):
                     result = mcdc.analyse_mcdc(decision, mode, max_exact=0)
                     self.assertNotIn("unknown", result.status.values())
-                    check = (mcdc.is_masking_pair if mode == "masking"
-                             else mcdc.is_unique_cause_pair)
+                    check = mcdc.PAIR_CHECK[mode]
                     for cond, (i, j) in result.choice.items():
                         self.assertTrue(check(decision, result.tests[i][0],
                                               result.tests[j][0], cond))

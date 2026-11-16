@@ -22,7 +22,8 @@ A *condition* is each occurrence of a variable in the expression, so in
 a#1 and a#2 are "coupled": they can never change independently.
 
 MC/DC definitions follow DOT/FAA/AR-01/18 (Chilenski, 2001): unique-cause
-(section 3.1.1) and masking by graph coloring (section 3.1.2). Up to
+(section 3.1.1), masking by graph coloring (section 3.1.2), and
+unique-cause + masking (section 3.2.2). Up to
 --max-exact inputs the whole truth table is analysed and the smallest test
 set is searched; above, each independence pair is searched directly.
 
@@ -30,6 +31,7 @@ Usage:
     python main.py "Out = (a and bd) or not c"                      # full truth table
     python main.py "Out = (a and bd) or not c" --mcdc               # masking MC/DC
     python main.py "Out = (a and bd) or not c" --mcdc unique-cause  # unique-cause MC/DC
+    python main.py "Out = (a and bd) or not c" --mcdc unique-cause+masking
     python main.py "Out = (a and bd) or not c" --mcdc --csv         # same, as CSV
     python main.py "Out = (a and bd) or not c" --mcdc -gen_scen input/test_setup.toml
                                     # also write a test scenario in the output folder
@@ -40,7 +42,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from mcdc import (DEFAULT_MAX_EXACT, analyse_mcdc, load_template, output_filename,
+from mcdc import (DEFAULT_MAX_EXACT, MODES, analyse_mcdc, load_template, output_filename,
                   parse_decision, print_mcdc_summary, print_table, render_scenario,
                   truth_table)
 
@@ -55,7 +57,7 @@ def main():
                         help='"Output = <boolean expression>" (quoted), e.g. '
                              f'"{EXAMPLE_EXPRESSION}"')
     parser.add_argument("--mcdc", nargs="?", const="masking",
-                        choices=["masking", "unique-cause"],
+                        choices=list(MODES),
                         help="reduce the table to a minimal MC/DC test set "
                              "(default method: masking)")
     parser.add_argument("--csv", action="store_true",

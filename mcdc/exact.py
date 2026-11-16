@@ -26,14 +26,20 @@ def independence_pairs(decision, rows, mode="masking"):
     masking      ([S2] 3.1.2, graph coloring): the results differ and k is
                   the only condition whose whole path up to the result
                   changes value; the changes of the other conditions are
-                  blocked by an operator whose value stays the same."""
+                  blocked by an operator whose value stays the same.
+    unique-cause+masking ([S2] 3.2.2, stated on the n-cube in 5.1 and 7.1):
+                  the masking pairs that are an edge of the n-cube, i.e.
+                  whose two rows differ in just one input."""
     m = len(decision.conditions)
     false_rows = [i for i, row in enumerate(rows) if not row[1]]
     true_rows = [i for i, row in enumerate(rows) if row[1]]
     pairs = {c: [] for c in decision.conditions}
-    if mode == "masking":
+    if mode in ("masking", "unique-cause+masking"):
         masks = [node_mask(decision, inputs) for inputs, _ in rows]
         for i, j in itertools.product(false_rows, true_rows):
+            if mode == "unique-cause+masking" and sum(
+                    a != b for a, b in zip(rows[i][0], rows[j][0])) != 1:
+                continue                     # not an edge: more than one input changes
             influence = influence_set(decision, masks[i], masks[j])
             if len(influence) == 1:
                 pairs[decision.conditions[influence[0]]].append(tuple(sorted((i, j))))
@@ -49,18 +55,36 @@ def independence_pairs(decision, rows, mode="masking"):
     return pairs
 
 
-def lower_bound(mode, conditions):
-    """Fewest tests that can cover `conditions` conditions ([S2] 5.1):
-    unique-cause N + 1 (Theorem 1), masking RUTW(2*SQRT(M)) (Theorem 4).
-    Theorem 4 holds because a masking pair joins one False and one True test
-    and serves a single condition: a False and b True tests give at most
-    a*b pairs, so a*b >= M and a + b >= 2*SQRT(M)."""
+def _masking_bound(conditions):
+    root = math.isqrt(4 * conditions)          # ceil(2*sqrt(M)) = ceil(sqrt(4M))
+    return root if root * root == 4 * conditions else root + 1
+
+
+def lower_bound(mode, conditions, variables=None):
+    """Fewest tests that can cover `conditions` conditions ([S2] 5.1).
+
+    unique-cause: N + 1 (Theorem 1).
+    masking: RUTW(2*SQRT(M)) (Theorem 4). It holds because a masking pair
+        joins one False and one True test and serves a single condition: a
+        False and b True tests give at most a*b pairs, so a*b >= M and
+        a + b >= 2*SQRT(M).
+    unique-cause+masking: max(V + 1, RUTW(2*SQRT(M))), where V (`variables`)
+        is the number of distinct inputs among the M conditions (V = M
+        without repeated inputs: Theorem 1). [S2] Theorem 2 (M + 1) is NOT
+        used: (B and not D) or (not B and D) has 4 conditions covered by its
+        4 possible tests. Proof of this bound: these pairs are masking pairs
+        (so Theorem 4 applies), and picking one pair per input gives V
+        n-cube edges in distinct directions, which can't form a cycle (a
+        cycle crosses each direction an even number of times), i.e. a forest
+        with V edges, so at least V + 1 tests."""
     if conditions == 0:
         return 0
     if mode == "unique-cause":
         return conditions + 1
-    root = math.isqrt(4 * conditions)          # ceil(2*sqrt(M)) = ceil(sqrt(4M))
-    return root if root * root == 4 * conditions else root + 1
+    if mode == "unique-cause+masking":
+        v = conditions if variables is None else variables
+        return max(v + 1, _masking_bound(conditions))
+    return _masking_bound(conditions)
 
 
 def _is_covered(pair_list, selected):
@@ -79,19 +103,26 @@ def _greedy(conds, pairs):
     return selected, choice
 
 
-def minimal_mcdc_set(pairs, forest_bound=True, time_limit=2.0):
+def minimal_mcdc_set(pairs, forest_bound=True, time_limit=2.0, bound=None):
     """Pick one independence pair per condition so that the total number
     of distinct test cases is minimal (branch and bound).
 
     `forest_bound` is only valid for unique-cause pairs: they are then
-    hypercube edges in distinct dimensions, i.e. a forest.
+    hypercube edges in distinct dimensions, i.e. a forest. It is not valid
+    for unique-cause + masking pairs (the edges of coupled conditions can
+    form a cycle).
+
+    `bound` is a proven lower bound on the set size; the search stops as
+    soon as it is reached. By default: lower_bound("unique-cause") with
+    forest_bound, lower_bound("masking") without.
 
     Returns (selected_rows, chosen_pair_per_condition, is_optimal)."""
     conds = sorted((c for c in pairs if pairs[c]), key=lambda c: len(pairs[c]))
     best_rows, best_choice = _greedy(conds, pairs)
     deadline = time.monotonic() + time_limit
     timed_out = False
-    bound = lower_bound("unique-cause" if forest_bound else "masking", len(conds))
+    if bound is None:
+        bound = lower_bound("unique-cause" if forest_bound else "masking", len(conds))
     # Rows that belong to pairs of many conditions are good hubs to share
     degree = {}
     for cond in conds:

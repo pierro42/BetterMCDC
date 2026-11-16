@@ -51,7 +51,11 @@ def print_mcdc_summary(decision, analysis, mode):
         if status == "impossible":
             if coupled and mode == "unique-cause":
                 reason = (f"coupled with {', '.join(coupled)}: they always change "
-                          f"together, use --mcdc masking")
+                          f"together, use --mcdc unique-cause+masking or masking")
+            elif coupled and mode == "unique-cause+masking":
+                name = decision.names[decision.variable[k]]
+                reason = (f"coupled with {', '.join(coupled)}: no pair where only "
+                          f"{name} changes (see --mcdc masking)")
             else:
                 reason = f"never independently affects {decision.output} (redundant)"
             print(f"  {cond:<{width}} : NONE - {reason}")

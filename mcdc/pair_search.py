@@ -13,7 +13,7 @@ References:
        Condition Decision Coverage (MCDC) Criterion", Chilenski, April 2001.
 """
 
-from .tree import apply_operator, is_masking_pair, is_unique_cause_pair, row_number
+from .tree import PAIR_CHECK, apply_operator, row_number
 
 
 class _BudgetExceeded(Exception):
@@ -49,8 +49,9 @@ def _search_pair(decision, k, mode, budget, fixed_x=None):
     independence pair for condition k, without the truth table.
 
     A branch is abandoned as soon as a node on k's path is known not to
-    change, or (masking) another condition is known to have its whole path
-    changed. Returns (status, (x, y) or None): "covered", "impossible" (the
+    change, or (masking, unique-cause+masking) another condition is known to
+    have its whole path changed. In unique-cause and unique-cause+masking
+    modes only k's input changes (an n-cube edge, [S2] 5.1). Returns (status, (x, y) or None): "covered", "impossible" (the
     whole search space was explored) or "unknown" (budget exceeded). With
     fixed_x only y is searched, and "impossible" only means that this x has
     no partner."""
@@ -58,6 +59,8 @@ def _search_pair(decision, k, mode, budget, fixed_x=None):
     v = decision.variable[k]
     if mode == "unique-cause" and decision.variable.count(v) > 1:
         return "impossible", None        # coupled condition, [S2] 3.2.1
+    inputs_fixed = mode != "masking"       # every other input keeps its value
+    check_others = mode != "unique-cause"  # other changed conditions must be masked
     others = [decision.path_nodes[j] for j in range(len(decision.conditions)) if j != k]
     path = decision.path_nodes[k]
     order = [v] + [u for u in range(n) if u != v]
@@ -70,7 +73,7 @@ def _search_pair(decision, k, mode, budget, fixed_x=None):
         vy = _partial_values(decision.nodes, [y[u] for u in decision.variable])
         if any(vx[m] is not None and vx[m] == vy[m] for m in path):
             return False
-        if mode == "masking":
+        if check_others:
             for other in others:
                 if all(vx[m] is not None and vy[m] is not None and vx[m] != vy[m]
                        for m in other):
@@ -81,8 +84,8 @@ def _search_pair(decision, k, mode, budget, fixed_x=None):
         if u == v:
             return [(False, True)] if fixed_x is None else [(x[v], not x[v])]
         if fixed_x is not None:
-            return [(x[u], x[u])] if mode == "unique-cause" else [(x[u], x[u]), (x[u], not x[u])]
-        if mode == "unique-cause":
+            return [(x[u], x[u])] if inputs_fixed else [(x[u], x[u]), (x[u], not x[u])]
+        if inputs_fixed:
             return [(False, False), (True, True)]
         return [(False, False), (True, True), (False, True), (True, False)]
 
@@ -115,7 +118,7 @@ def pair_search_set(decision, mode, budget):
     """One independence pair per condition, reusing the tests already
     selected when possible. Not guaranteed minimal."""
     tests, choice, status = [], {}, {}
-    check = is_masking_pair if mode == "masking" else is_unique_cause_pair
+    check = PAIR_CHECK[mode]
     for k, cond in enumerate(decision.conditions):
         found = None
         for x in list(tests):            # first try a partner for a selected test

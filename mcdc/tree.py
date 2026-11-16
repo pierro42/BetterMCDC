@@ -2,9 +2,10 @@
 """
 Expression tree, evaluation, and the MC/DC independence-pair definitions.
 
-is_masking_pair and is_unique_cause_pair are the direct transcription of the
-definitions of [S2] 3.1.2 and 3.1.1. Both engines (exact.py and
-pair_search.py) produce pairs that must satisfy them.
+is_masking_pair, is_unique_cause_pair and is_unique_cause_masking_pair are
+the direct transcription of the definitions of [S2] 3.1.2, 3.1.1 and
+3.2.2. Both engines (exact.py and pair_search.py) produce pairs that must
+satisfy them; PAIR_CHECK gives the definition of each MC/DC form.
 
 References:
   [S1] NASA/TM-2001-210876, "A Practical Tutorial on Modified
@@ -123,6 +124,29 @@ def is_unique_cause_pair(decision, x, y, cond):
     cy = [y[v] for v in decision.variable]
     changed = [j for j in range(len(cx)) if cx[j] != cy[j]]
     return changed == [k] and bool(decision.evaluate(cx)) != bool(decision.evaluate(cy))
+
+
+def is_unique_cause_masking_pair(decision, x, y, cond):
+    """True if x and y form a unique-cause + masking independence pair for
+    `cond` ([S2] 3.2.2): a unique cause for an uncoupled condition, and for
+    a strongly coupled condition masking is allowed for that condition only,
+    all other conditions remaining fixed.
+
+    [S2] 5.1 and 7.1 state it on the n-cube of the inputs: the pair must be
+    an *edge* (the two tests differ in just one input) and a valid
+    independence pair (the graph coloring of 3.1.2). So: only the input of
+    `cond` changes, and the influence set is exactly {cond}. For an
+    uncoupled condition this is exactly a unique-cause pair."""
+    k = decision.conditions.index(cond)
+    changed = [v for v in range(len(x)) if bool(x[v]) != bool(y[v])]
+    return changed == [decision.variable[k]] and is_masking_pair(decision, x, y, cond)
+
+
+# The MC/DC forms of [S2] 3.2, from the weakest to the strongest
+MODES = ("masking", "unique-cause+masking", "unique-cause")
+PAIR_CHECK = {"masking": is_masking_pair,
+              "unique-cause+masking": is_unique_cause_masking_pair,
+              "unique-cause": is_unique_cause_pair}
 
 
 def truth_table(decision):

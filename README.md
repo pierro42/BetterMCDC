@@ -3,7 +3,7 @@
 Command-line tool that takes a Boolean expression and gives the test cases needed to test it:
 
 - **Truth table:** the full truth table, with the variable names as column headers.
-- **MC/DC test set:** the minimal set of test cases, with expected results, that satisfies MC/DC (Modified Condition / Decision Coverage), in masking or unique-cause form.
+- **MC/DC test set:** the minimal set of test cases, with expected results, that satisfies MC/DC (Modified Condition / Decision Coverage), in any of the three forms defined by the FAA report: masking, unique-cause + masking, or unique-cause.
 - **Repeated variables:** expressions where a variable appears more than once, such as `(a and b) or (not c and a)`, are handled.
 - **Test scenario file:** optionally, the test cases written as a scenario file (C++, or any other text format) through a user template. See [docs/SCENARIO_GENERATION.md](docs/SCENARIO_GENERATION.md).
 
@@ -96,6 +96,7 @@ MC/DC is about *conditions*: each occurrence of a variable in the expression is 
 | Option | Effect |
 |---|---|
 | `--mcdc` | reduce the table to a minimal masking MC/DC test set |
+| `--mcdc unique-cause+masking` | the same with unique-cause + masking MC/DC |
 | `--mcdc unique-cause` | the same with unique-cause MC/DC |
 | `--csv` | print the table as CSV (the summary is not printed) |
 | `--max-exact N` | number of inputs up to which the whole truth table is analysed (default 10); see [Large expressions](#large-expressions) |
@@ -107,10 +108,10 @@ MC/DC is about *conditions*: each occurrence of a variable in the expression is 
 - **`#` column:** the row number in the full truth table, so a reduced table traces back to the full one. The first input is the most significant bit, and numbering starts at 1.
 - **Independence pairs:** for each condition, the two test cases that show it independently affects the output.
   - `(N possible pair(s))` is how many valid pairs exist.
-  - `masked:` lists the other conditions that also change within that pair; in masking MC/DC their effect is blocked by another operator.
+  - `masked:` lists the other conditions that also change within that pair; their effect is blocked by another operator. In unique-cause + masking, these can only be other occurrences of the same variable.
 - **`NONE`:** no pair exists.
   - `redundant`: the condition never affects the output on its own, which is often a sign of a design error.
-  - `coupled`: in unique-cause MC/DC a repeated variable can never change alone. Use masking MC/DC.
+  - `coupled`: in unique-cause MC/DC a repeated variable can never change alone; use unique-cause + masking or masking. In unique-cause + masking, no pair exists where only that variable changes; masking MC/DC may still cover it.
 - **`Minimum`:**
   - `proven minimal` means no smaller set exists.
   - `not proven minimal` means the set is valid but may not be the smallest; the published lower bound is shown.
@@ -123,21 +124,45 @@ python main.py "Out = (a and bd) or (not c and a)" --mcdc unique-cause
 
 ```
 Independence pairs:
-  a#1 : NONE - coupled with a#2: they always change together, use --mcdc masking
+  a#1 : NONE - coupled with a#2: they always change together, use --mcdc unique-cause+masking or masking
   bd  : #6 / #8   Out 0 -> 1   (1 possible pair(s))
   c   : #5 / #6   Out 1 -> 0   (1 possible pair(s))
-  a#2 : NONE - coupled with a#1: they always change together, use --mcdc masking
+  a#2 : NONE - coupled with a#1: they always change together, use --mcdc unique-cause+masking or masking
 ```
 
-## Masking or unique-cause?
+The same expression in unique-cause + masking mode: each `a` is shown by changing only `a`, the other occurrence being masked.
 
-Both forms are accepted for DO-178C. Usually your plans and your structural coverage tool decide for you; otherwise use masking.
+```bash
+python main.py "Out = (a and bd) or (not c and a)" --mcdc unique-cause+masking
+```
 
-- **Your plans:** the form belongs in your PSAC and Software Verification Plan, agreed with your certification authority. Masking MC/DC was accepted by the authorities through the CAST-6 position paper (2001).
+```
+Independence pairs:
+  a#1 : #4 / #8   Out 0 -> 1   (1 possible pair(s))   masked: a#2
+  bd  : #6 / #8   Out 0 -> 1   (1 possible pair(s))
+  c   : #5 / #6   Out 1 -> 0   (1 possible pair(s))
+  a#2 : #1 / #5   Out 0 -> 1   (1 possible pair(s))   masked: a#1
+```
+
+## Which form: masking, unique-cause + masking or unique-cause?
+
+The FAA report defines three forms, from the strictest to the weakest:
+
+| Form | Between the two tests of a pair |
+|---|---|
+| unique-cause | only the condition shown changes |
+| unique-cause + masking | only the *variable* of the condition shown changes; its other occurrences must be masked |
+| masking | any condition may change, as long as only the condition shown affects the output |
+
+Without repeated variables, unique-cause and unique-cause + masking give exactly the same pairs.
+
+Usually your plans and your structural coverage tool decide for you; otherwise use masking.
+
+- **Your plans:** the form belongs in your PSAC and Software Verification Plan, agreed with your certification authority. Masking MC/DC was accepted by the authorities through the CAST-6 position paper (2001). The FAA report says unique-cause + masking has been used in airplane certifications.
 - **Your coverage tool:** use the form it measures on the real code, or it will report gaps.
-- **Repeated variables:** unique-cause cannot cover them at all; only masking can.
-- **Test count:** masking needs at most as many tests, and far fewer for large expressions. The published lower bounds are N + 1 tests for unique-cause and ⌈2√N⌉ for masking.
-- **Review:** unique-cause pairs are easier to check by hand, since exactly one input changes.
+- **Repeated variables:** unique-cause cannot cover them at all; unique-cause + masking and masking can.
+- **Test count:** masking needs at most as many tests as the other forms, and far fewer for large expressions. The published lower bounds are N + 1 tests for unique-cause and ⌈2√N⌉ for masking.
+- **Review:** the unique-cause forms are easier to check by hand, since exactly one input changes per pair.
 
 ## Large expressions
 
