@@ -1,0 +1,84 @@
+# Test scenario template, used with:
+#     python main.py "Out = (a and b) or c" --mcdc -gen_scen input/test_setup.toml
+#
+# Texts are written between ''' and ''': everything inside is kept exactly
+# ({, }, ", %, \ need no escaping). A line break right after the opening '''
+# is ignored. A placeholder is written ${name}; write $$ for a literal $.
+#
+# Placeholders given by the tool:
+#   ${expression}      the expression, as passed to main.py      (everywhere)
+#   ${output_name}     the output name ("Out" in "Out = ...")    (everywhere)
+#   ${test_number}     test case number, from STARTING_TEST_NUMBER  (TEST_CASE_*)
+#   ${row}             '#' of the test in the tool's truth table    (TEST_CASE_*)
+#   ${output_value}    expected value of the output                 (TEST_CASE_*)
+#   ${output_inverse}  the inverse of the expected value            (TEST_CASE_*)
+#   ${input_name}, ${input_value}   one input                (TEST_CASE_INPUT_SET)
+# plus every name defined in [variables].
+#
+# Order: TEST_PREAMBLE, then for each test case: TEST_CASE_START,
+# TEST_CASE_INPUT_SET (once per input), TEST_CASE_OUTPUT_SET, TEST_CASE_PROCESS,
+# TEST_CASE_OUTPUT_CHECK, TEST_CASE_END; then TEST_EPILOGUE.
+# Any text can be left out (nothing is written for it).
+
+[variables]
+# Your own values: add, rename or remove them freely.
+CODE_UNDER_TEST = "Mycode_UnderTest"     # basename of the scenario
+FAMILY = "30"                            # added to the basename for tracking
+
+[settings]
+STARTING_TEST_NUMBER = 1                 # e.g. 25 to append to an existing scenario
+TRUE = "True"                            # how True / False are written, e.g. "1" / "0"
+FALSE = "False"
+# Written in the project's "output" folder (or the folder given with --output-dir);
+# an absolute path is used as is.
+OUTPUT_FILENAME = "Test_scenario_${CODE_UNDER_TEST}_${FAMILY}.py"
+
+[format]
+TEST_PREAMBLE = '''
+#    The following program will test the code under test "${CODE_UNDER_TEST}" with family "${FAMILY}".
+#    The expression tested is: ${expression}
+import code_to_test as m
+
+ok=0
+ko=0
+
+def CHECK(a,b):
+    if a==b:
+        global ok,ko
+        print("Success!")
+        ok += 1
+    else:
+        print("KO!")
+        ko +=1
+        
+m.initialize()
+'''
+
+TEST_CASE_START = '''
+
+# Test case number ${test_number} (truth table row #${row})
+print("Test case number ${test_number}")
+'''
+
+TEST_CASE_INPUT_SET = '''m.${input_name} = ${input_value}
+'''
+
+# Preset the output to the inverse of the expected value, so that the check
+# fails if the code under test doesn't write it.
+TEST_CASE_OUTPUT_SET = '''m.${output_name} = ${output_inverse}
+'''
+
+TEST_CASE_PROCESS = '''m.process()
+'''
+
+TEST_CASE_OUTPUT_CHECK = '''CHECK(m.${output_name},${output_value})
+'''
+
+TEST_CASE_END = '''
+'''
+
+TEST_EPILOGUE = '''
+print("Total OK: ",ok)
+print("Total KO: ",ko)
+#    End of the tests.
+'''
