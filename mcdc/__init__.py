@@ -11,6 +11,7 @@ Modules:
   pair_search  engine for large expressions (no truth table)
   analysis     chooses the engine
   report       text / CSV output
+  scenario     test scenario file from a TOML template
 
 [S2] DOT/FAA/AR-01/18, Chilenski, April 2001.
 """
@@ -19,10 +20,12 @@ from .analysis import DEFAULT_MAX_EXACT, Analysis, analyse_mcdc
 from .decision import Decision, parse_decision
 from .exact import independence_pairs, lower_bound, minimal_mcdc_set
 from .report import print_mcdc_summary, print_table
+from .scenario import load_template, output_filename, render_scenario
 from .tree import (is_masking_pair, is_unique_cause_pair, node_mask, row_number,
                    truth_table)
 
 __all__ = ["DEFAULT_MAX_EXACT", "Analysis", "analyse_mcdc", "Decision", "parse_decision",
            "independence_pairs", "lower_bound", "minimal_mcdc_set", "print_mcdc_summary",
            "print_table", "is_masking_pair", "is_unique_cause_pair", "node_mask",
-           "row_number", "truth_table"]
+           "row_number", "truth_table", "load_template", "output_filename",
+           "render_scenario"]

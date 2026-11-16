@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
+# Created on Wed Oct 28 21:14:58 2026
+# @author: Pierre
 """
-Created on Wed Oct 28 21:14:58 2026
-
-@author: Pierre
-
 Truth table generator for a boolean expression, with an optional
 MC/DC (Modified Condition / Decision Coverage) reduction.
 
@@ -33,23 +31,29 @@ Usage:
     python main.py "Out = (a and bd) or not c" --mcdc               # masking MC/DC
     python main.py "Out = (a and bd) or not c" --mcdc unique-cause  # unique-cause MC/DC
     python main.py "Out = (a and bd) or not c" --mcdc --csv         # same, as CSV
+    python main.py "Out = (a and bd) or not c" --mcdc -gen_scen input/test_setup.toml
+                                    # also write a test scenario in the output folder
+                                    # (template format: see input/test_setup.toml)
 """
 
 import argparse
 import sys
+from pathlib import Path
 
-from mcdc import (DEFAULT_MAX_EXACT, analyse_mcdc, parse_decision, print_mcdc_summary,
-                  print_table, truth_table)
+from mcdc import (DEFAULT_MAX_EXACT, analyse_mcdc, load_template, output_filename,
+                  parse_decision, print_mcdc_summary, print_table, render_scenario,
+                  truth_table)
 
-DEFAULT_EXPRESSION = "Outvar = (cond1 or cond2_mem) and (not cond1 and cond3)"
+EXAMPLE_EXPRESSION = "Outvar = (cond1 or cond2_mem) and (not cond1 and cond3)"
+OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("expression", nargs="?", default=DEFAULT_EXPRESSION,
-                        help='"Output = <boolean expression>" (quoted); '
-                             f'default: "{DEFAULT_EXPRESSION}"')
+    parser.add_argument("expression", nargs="?",
+                        help='"Output = <boolean expression>" (quoted), e.g. '
+                             f'"{EXAMPLE_EXPRESSION}"')
     parser.add_argument("--mcdc", nargs="?", const="masking",
                         choices=["masking", "unique-cause"],
                         help="reduce the table to a minimal MC/DC test set "
@@ -59,30 +63,60 @@ def main():
     parser.add_argument("--max-exact", type=int, default=DEFAULT_MAX_EXACT, metavar="N",
                         help="number of inputs up to which the whole truth table is "
                              f"analysed (default: {DEFAULT_MAX_EXACT})")
+    parser.add_argument("-gen_scen", "--gen-scen", metavar="TEMPLATE",
+                        help="also write a test scenario of the test cases, formatted "
+                             "by a TOML template file (e.g. input/test_setup.toml)")
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR, metavar="DIR",
+                        help="folder where the scenario is written (default: the "
+                             "'output' folder next to main.py, created if needed)")
     args = parser.parse_args()
+    if args.expression is None:
+        parser.print_help()
+        return
 
     try:
         decision = parse_decision(args.expression)
     except ValueError as e:
         parser.error(f"invalid expression: {e}")
     n = len(decision.names)
+    template = None
+    if args.gen_scen:
+        # checked before the analysis, so a template error is reported at once
+        try:
+            template = load_template(args.gen_scen)
+        except (OSError, ValueError) as e:
+            parser.error(f"scenario template {args.gen_scen}: {e}")
 
     if not args.mcdc:
         if n > args.max_exact:
             parser.error(f"{n} inputs: the full truth table has 2^{n} rows; "
                          f"use --mcdc, or raise --max-exact")
         rows = truth_table(decision)
-        print_table(decision, [(i, *r) for i, r in enumerate(rows)], csv=args.csv)
-        return
+        tests = [(i, *r) for i, r in enumerate(rows)]
+        print_table(decision, tests, csv=args.csv)
+    else:
+        analysis = analyse_mcdc(decision, args.mcdc, args.max_exact)
+        tests = [(i, *analysis.tests[i]) for i in analysis.tests]
+        print_table(decision, tests, csv=args.csv)
+        if not args.csv:
+            print(f"\n{len(analysis.tests)} test case(s) instead of {2 ** n}.")
+            print_mcdc_summary(decision, analysis, args.mcdc)
+        elif "unknown" in analysis.status.values():
+            print("WARNING: coverage not proven for some conditions "
+                  "(run without --csv for details)", file=sys.stderr)
 
-    analysis = analyse_mcdc(decision, args.mcdc, args.max_exact)
-    print_table(decision, [(i, *analysis.tests[i]) for i in analysis.tests], csv=args.csv)
-    if not args.csv:
-        print(f"\n{len(analysis.tests)} test case(s) instead of {2 ** n}.")
-        print_mcdc_summary(decision, analysis, args.mcdc)
-    elif "unknown" in analysis.status.values():
-        print("WARNING: coverage not proven for some conditions "
-              "(run without --csv for details)", file=sys.stderr)
+    if template:
+        # a relative OUTPUT_FILENAME goes into the output folder, an absolute one is kept
+        path = args.output_dir / output_filename(template, decision, args.expression)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(render_scenario(template, decision, tests, args.expression))
+        except OSError as e:
+            parser.error(f"can't write the scenario: {e}")
+        # on stderr with --csv, so that the CSV output stays clean
+        print(f"\nScenario written to {path} ({len(tests)} test case(s))",
+              file=sys.stderr if args.csv else sys.stdout)
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ source of every expected result in the suite. They use the definitions the tool 
 | `mcdc/pair_search.py` | engine for large expressions | every pair it reports is checked with `tree.py` before output |
 | `mcdc/analysis.py` | engine choice (`--max-exact`) | |
 | `mcdc/report.py` | text / CSV output | |
+| `mcdc/scenario.py` | test scenario file from a TOML template (`-gen_scen`) | tool requirements (scenario generation), `tests/test_scenario.py` |
 
 ## Notation used in the tests
 
@@ -66,6 +67,10 @@ source of every expected result in the suite. They use the definitions the tool 
 | `InputSyntax.test_not_binds_like_c` | tool requirement (input language) | `!` binds tighter than every other operator, as in C: `!a == b` is `(!a) == b` |
 | `PairSearchEngine.*` | all the cases above | the pair-search engine reaches the same coverable/impossible conclusions, with valid pairs, and its pair for S2 §3.1.1 is one of the published pairs |
 | `AppendixCCrossCheck.*` | expressions of S2 App. C | **engine cross-check, not a published oracle**: see below |
+| `test_scenario.ScenarioText.test_mcdc_scenario` | tool requirement (scenario generation); vectors from S1 §3.1.1, Table 5 | the 3-input and set rendered with a template gives the exact expected text (section order, one line per input, numbering, `${row}`, inverse output, TRUE/FALSE texts, `{ } " % \ $$` literal) and file name |
+| `test_scenario.ScenarioText.*` (other) | tool requirement (scenario generation) | full truth table without `--mcdc`, defaults, `${expression}` as typed |
+| `test_scenario.TemplateErrors.*` | tool requirement (scenario generation) | a wrong template (unknown or out-of-scope placeholder, bad `$`, unknown key, bad value, not TOML) is rejected with the key named |
+| `test_scenario.CommandLine.*` | tool requirement (command line) | `-gen_scen` / `--gen-scen` write the file (default folder `output/`, or `--output-dir`); `--csv` output stays clean; a template error stops before anything is written; no expression → help |
 
 ## S2 Appendix C data
 
