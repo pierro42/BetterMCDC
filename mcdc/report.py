@@ -3,6 +3,10 @@
 Output: truth table / test-case table (text or CSV) and the MC/DC summary.
 """
 
+from .tree import executed_inputs, node_masks, tree_xor
+
+NOT_EVALUATED = "X"     # [S1] 3.6, Tables 32-33: "X represents don't care"
+
 
 def _cell(value):
     return "1" if value else "0"
@@ -11,10 +15,15 @@ def _cell(value):
 def print_table(decision, tests, csv=False):
     """Print test cases given as (row, inputs, result). The '#' column is
     the 1-based row number in the full truth table, so reduced tables stay
-    traceable."""
+    traceable. With short-circuit forms, an input that the test doesn't
+    evaluate is written X (its row number counts it as 0)."""
     headers = ["#"] + decision.names + [decision.output]
-    lines = [[str(i + 1)] + [_cell(v) for v in inputs] + [_cell(result)]
-             for i, inputs, result in tests]
+    lines = []
+    for i, inputs, result in tests:
+        executed = executed_inputs(decision, inputs)
+        lines.append([str(i + 1)]
+                     + [_cell(v) if ex else NOT_EVALUATED for v, ex in zip(inputs, executed)]
+                     + [_cell(result)])
 
     if csv:
         print(",".join(headers))
@@ -38,7 +47,8 @@ def print_mcdc_summary(decision, analysis, mode):
               else "pair search (no truth table)")
     print()
     print(f"Decision : {decision.output} = {decision.text}")
-    print(f"Method   : {mode} MC/DC, {len(conds)} condition(s), {engine}")
+    evaluation = ", short-circuit evaluation" if decision.short_circuit else ""
+    print(f"Method   : {mode} MC/DC{evaluation}, {len(conds)} condition(s), {engine}")
     print()
     print("Independence pairs:")
     for k, cond in enumerate(conds):
@@ -49,7 +59,7 @@ def print_mcdc_summary(decision, analysis, mode):
             print(f"  {cond:<{width}} : UNKNOWN - search budget exceeded, coverage not proven")
             continue
         if status == "impossible":
-            if coupled and mode == "unique-cause":
+            if coupled and mode == "unique-cause" and not decision.short_circuit:
                 reason = (f"coupled with {', '.join(coupled)}: they always change "
                           f"together, use --mcdc unique-cause+masking or masking")
             elif coupled and mode == "unique-cause+masking":
@@ -62,8 +72,10 @@ def print_mcdc_summary(decision, analysis, mode):
             continue
         i, j = analysis.choice[cond]
         (xi, ri), (xj, rj) = analysis.tests[i], analysis.tests[j]
-        masked = [c for c, v in zip(conds, decision.variable)
-                  if c != cond and xi[v] != xj[v]]
+        # other conditions that changed (executed in both tests, different value)
+        changed = tree_xor(node_masks(decision, xi), node_masks(decision, xj))
+        masked = [c for c, path in zip(conds, decision.path_nodes)
+                  if c != cond and changed >> path[0] & 1]
         count = (f"   ({analysis.pair_counts[cond]} possible pair(s))"
                  if analysis.pair_counts else "")
         note = f"   masked: {', '.join(masked)}" if masked else ""

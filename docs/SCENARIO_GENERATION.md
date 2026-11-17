@@ -3,7 +3,7 @@
 With `-gen_scen`, the tool writes its test cases to a scenario file: a C++ test fragment, or any other text format. All formatting is in a **template file** that you write. You don't need to change any Python code.
 
 ```bash
-python main.py "Out = (a and b) or c" --mcdc -gen_scen input/test_setup.toml
+python main.py "Out = (a and b) or c" --mcdc -gen_scen input/test_setup_cpp.toml
 ```
 
 ```
@@ -29,7 +29,7 @@ Missing folders are created. An existing file with the same name is overwritten.
 
 ## The template file
 
-The template is a [TOML](https://toml.io) file with three tables. [input/test_setup.toml](../input/test_setup.toml) is a complete example.
+The template is a [TOML](https://toml.io) file with three tables. [input/test_setup_cpp.toml](../input/test_setup_cpp.toml) is a complete example.
 
 ```toml
 [variables]
@@ -65,6 +65,7 @@ Names are letters, digits and `_`, not starting with a digit. They can't reuse a
 | `STARTING_TEST_NUMBER` | number of the first test case. Use e.g. `25` to append the scenario to an existing one that ends at test 24 | `1` |
 | `TRUE` | how a True value is written, e.g. `"TRUE"`, `"true"`, `"1"` | `"1"` |
 | `FALSE` | how a False value is written, e.g. `"FALSE"`, `"false"`, `"0"` | `"0"` |
+| `NOT_EVALUATED` | value written for an input that the test doesn't evaluate (short-circuit forms; `X` in the tool's tables). Any value works, since the input isn't evaluated | the `FALSE` text |
 | `OUTPUT_FILENAME` | name of the generated file; can use `[variables]`, `${expression}` and `${output_name}` | required |
 
 ### `[format]`: the texts
@@ -111,7 +112,7 @@ A placeholder is written `${name}` and replaced by its value.
 | `${output_inverse}` | the inverse of the expected value | all `TEST_CASE_*` texts |
 | `${input_name}`, `${input_value}` | one input and its value | `TEST_CASE_INPUT_SET` only |
 
-Values are written with the `TRUE` / `FALSE` texts.
+Values are written with the `TRUE` / `FALSE` texts. With short-circuit forms (`and then`, `or else`, `--short-circuit`), an input that the test doesn't evaluate gets the `NOT_EVALUATED` text.
 
 `${output_inverse}` is meant for `TEST_CASE_OUTPUT_SET`. Presetting the output to the opposite of the expected value makes the check fail if the code under test doesn't write its output at all.
 
@@ -155,10 +156,10 @@ main.py: error: scenario template input/bad.toml: [format] TEST_PREAMBLE: ${inpu
 
 ## Complete example
 
-Template: [input/test_setup.toml](../input/test_setup.toml). Command:
+Template: [input/test_setup_cpp.toml](../input/test_setup_cpp.toml). Command:
 
 ```bash
-python main.py "Out = (a and b) or c" --mcdc -gen_scen input/test_setup.toml
+python main.py "Out = (a and b) or c" --mcdc -gen_scen input/test_setup_cpp.toml
 ```
 
 The MC/DC set is rows #2, #3, #5 and #7. Generated `output/Test_scenario_Mycode_UnderTest_30.cpp` (beginning):

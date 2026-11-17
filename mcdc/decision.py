@@ -5,6 +5,11 @@ Input language: "Output = <boolean expression>" -> Decision.
 Accepted: variable names, and / et / &&, or / ou / ||, not / non / !,
 == and != (xor), True, False and parentheses. Each occurrence of a variable
 is a condition (a#1, a#2 when a variable is repeated).
+
+Short-circuit forms ([S2] glossary): "and then" and "or else" always
+evaluate their right operand only when needed. With short_circuit=True,
+every and / or (also written et / ou / && / ||) is a short-circuit form, as
+&& and || are in C.
 """
 
 import ast
@@ -26,12 +31,15 @@ class Decision(NamedTuple):
     nodes: List[tuple]               # expression tree, children before parents
     path_nodes: List[List[int]]      # nodes from each condition up to the result
     paths: List[int]                 # the same, as bitmasks over the nodes
+    short_circuit: bool = False      # the tree has and-then / or-else nodes
 
 
 # The only syntax accepted in an expression
 _ALLOWED = (ast.BoolOp, ast.And, ast.Or, ast.UnaryOp, ast.Not,
             ast.Compare, ast.Eq, ast.NotEq, ast.Name, ast.Load, ast.Constant)
-_ALLOWED_TEXT = "names, and/et/&&, or/ou/||, not/non/!, ==, !=, True, False"
+_ALLOWED_TEXT = ("names, and/et/&&, or/ou/||, and then, or else, not/non/!, ==, !=, "
+                 "True, False")
+_SHORT_CIRCUIT_WORDS = {"and": "then", "or": "else"}
 
 _FRENCH = {"et": "and", "ou": "or", "non": "not"}
 _TO_FRENCH = {v: k for k, v in _FRENCH.items()}
@@ -98,7 +106,14 @@ def _replace_words(text, replace):
             continue
         start, end = tok.start[1], tok.end[1]
         if tok.type == tokenize.NAME:
-            new = replace(tok.string)
+            second = _SHORT_CIRCUIT_WORDS.get(tok.string)
+            if (second is not None and following is not None
+                    and following.type == tokenize.NAME and following.string == second):
+                new = replace(f"{tok.string} {second}")     # and then / or else
+                if new is not None:
+                    end, skip = following.end[1], True
+            else:
+                new = replace(tok.string)
         elif (tok.string in ("&", "|") and following is not None
               and following.string == tok.string and following.start == tok.end):
             new = replace(tok.string * 2)
@@ -121,13 +136,26 @@ def _replace_words(text, replace):
     return "".join(out), shifts
 
 
-def parse_decision(text):
+def parse_decision(text, short_circuit=False):
     """Parse "Output = <boolean expression>" into a Decision.
+    With short_circuit=True every and / or is a short-circuit form ("and
+    then" / "or else" always are).
     Raises ValueError with a readable message if the text is not valid."""
     text = " ".join(text.splitlines()).strip()
     used = set()                    # which alternative spellings the user wrote
+    operators = []                  # (spelling, short-circuit) of each and / or, in order
 
     def to_python(word):
+        if word in ("and then", "or else"):
+            operators.append((word, True))
+            return f" {word.split()[0]} "
+        if word in ("and", "or"):
+            operators.append((word, short_circuit))
+            return None
+        if word in ("&&", "||"):
+            operators.append((word, short_circuit))
+        elif word.lower() in ("et", "ou"):
+            operators.append((word, short_circuit))
         if word in _SYMBOLS:
             used.add("symbols")
             return _SYMBOLS[word]
@@ -184,9 +212,24 @@ def parse_decision(text):
         labels.append(f"{node.id}#{seen[node.id]}" if counts[node.id] > 1 else node.id)
     variable = [names.index(node.id) for node in occurrences]
 
+    # Which and / or are short-circuit forms: the k-th "and" / "or" keyword
+    # of the Python text is the k-th operator the user wrote. ast offsets are
+    # in UTF-8 bytes.
+    keywords = [len(python_text[:tok.start[1]].encode("utf-8"))
+                for tok in tokenize.generate_tokens(io.StringIO(python_text).readline)
+                if tok.type == tokenize.NAME and tok.string in ("and", "or")]
+    if len(keywords) != len(operators):
+        raise ValueError("internal error: and / or operators not matched")
+    sc_offsets = [offset for offset, (_, sc) in zip(keywords, operators) if sc]
+
+    def short_circuit_at(left, right):
+        return any(left.end_col_offset <= offset < right.col_offset for offset in sc_offsets)
+
     # Display text: the k-th variable token is occurrence k (reading order),
-    # and operators go back to the spelling the user wrote (French, && / ||)
+    # each and / or is written as the user wrote it, and not goes back to the
+    # spelling the user used (French, !)
     label_iter = iter(labels)
+    operator_iter = iter(operators)
     spelling = {}
     if "french" in used:
         spelling.update(_TO_FRENCH)
@@ -196,17 +239,21 @@ def parse_decision(text):
     def display(word):
         if word in names:
             return next(label_iter)
+        if word in ("and", "or"):
+            typed = next(operator_iter)[0]
+            return None if typed == word else typed
         return spelling.get(word)
 
     label_text = _replace_words(ast.unparse(expr), display)[0]
     label_text = re.sub(r"!\s+", "!", label_text)       # "! a" -> "!a" ("!=" has no space)
 
-    nodes, leaf = build_tree(expr, occurrences)
+    nodes, leaf = build_tree(expr, occurrences, short_circuit_at)
     path_nodes = [path_to_root(nodes, leaf[k]) for k in range(len(occurrences))]
     paths = [sum(1 << n for n in path) for path in path_nodes]
 
     def evaluate(cond):
         return node_values(nodes, cond)[-1]
 
+    has_short_circuit = any(kind in ("andthen", "orelse") for kind, _, _ in nodes)
     return Decision(output, names, labels, variable, evaluate, label_text,
-                    nodes, path_nodes, paths)
+                    nodes, path_nodes, paths, has_short_circuit)

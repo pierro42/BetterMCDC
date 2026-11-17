@@ -13,7 +13,7 @@ References:
        Condition Decision Coverage (MCDC) Criterion", Chilenski, April 2001.
 """
 
-from .tree import PAIR_CHECK, apply_operator, row_number
+from .tree import PAIR_CHECK, SHORT_CIRCUIT, apply_operator, canonical, row_number
 
 
 class _BudgetExceeded(Exception):
@@ -25,6 +25,7 @@ def _partial_values(nodes, cond):
     False input is False, an or with a True input is True, and so on."""
     values = []
     for kind, a, b in nodes:
+        base = SHORT_CIRCUIT.get(kind, kind)
         if kind == "cond":
             values.append(cond[a])
         elif kind == "const":
@@ -33,9 +34,9 @@ def _partial_values(nodes, cond):
             values.append(None if values[a] is None else not values[a])
         else:
             va, vb = values[a], values[b]
-            if kind == "and" and (va is False or vb is False):
+            if base == "and" and (va is False or vb is False):
                 values.append(False)
-            elif kind == "or" and (va is True or vb is True):
+            elif base == "or" and (va is True or vb is True):
                 values.append(True)
             elif va is None or vb is None:
                 values.append(None)
@@ -44,26 +45,63 @@ def _partial_values(nodes, cond):
     return values
 
 
+def _partial_executed(nodes, values):
+    """Whether each node is executed (tree.node_executed) when some values
+    are unknown: True, False, or None (unknown)."""
+    executed = [None] * len(nodes)
+    executed[-1] = True
+    for n in range(len(nodes) - 1, -1, -1):
+        kind, a, b = nodes[n]
+        if kind in ("cond", "const"):
+            continue
+        e = executed[n]
+        executed[a] = e
+        if b is None:
+            continue
+        if kind in SHORT_CIRCUIT:
+            skips = kind == "orelse"         # left value that skips the right operand
+            if e is False or values[a] is skips:
+                executed[b] = False
+            elif e is True and values[a] is not None:
+                executed[b] = True
+            else:
+                executed[b] = None
+        else:
+            executed[b] = e
+    return executed
+
+
 def _search_pair(decision, k, mode, budget, fixed_x=None):
     """Depth-first search of two input vectors (x, y) forming an
     independence pair for condition k, without the truth table.
 
-    A branch is abandoned as soon as a node on k's path is known not to
-    change, or (masking, unique-cause+masking) another condition is known to
-    have its whole path changed. In unique-cause and unique-cause+masking
-    modes only k's input changes (an n-cube edge, [S2] 5.1). Returns (status, (x, y) or None): "covered", "impossible" (the
-    whole search space was explored) or "unknown" (budget exceeded). With
-    fixed_x only y is searched, and "impossible" only means that this x has
-    no partner."""
+    A branch is abandoned only when it can no longer give a valid pair
+    (tree.independence), i.e. as soon as one of these is known for sure:
+      - a node on k's path is unchanged in the influence tree (not executed
+        in one test, or executed in both with the same value);
+      - (masking, unique-cause+masking) another condition's whole path is
+        changed;
+      - (unique-cause) another condition is changed; (unique-cause+masking)
+        a condition of another input is changed.
+    Without short-circuit forms every input but k's keeps its value in the
+    unique-cause forms (an n-cube edge, [S2] 5.1). Once every input is set,
+    the pair is accepted only if the exact definition (PAIR_CHECK) holds.
+
+    Returns (status, (x, y) or None): "covered", "impossible" (the whole
+    search space was explored) or "unknown" (budget exceeded). With fixed_x
+    only y is searched, and "impossible" only means that this x has no
+    partner."""
     n = len(decision.names)
     v = decision.variable[k]
-    if mode == "unique-cause" and decision.variable.count(v) > 1:
+    if (mode == "unique-cause" and not decision.short_circuit
+            and decision.variable.count(v) > 1):
         return "impossible", None        # coupled condition, [S2] 3.2.1
-    inputs_fixed = mode != "masking"       # every other input keeps its value
-    check_others = mode != "unique-cause"  # other changed conditions must be masked
-    others = [decision.path_nodes[j] for j in range(len(decision.conditions)) if j != k]
+    inputs_fixed = mode != "masking" and not decision.short_circuit
+    others = [j for j in range(len(decision.conditions)) if j != k]
     path = decision.path_nodes[k]
     order = [v] + [u for u in range(n) if u != v]
+    check = PAIR_CHECK[mode]
+    cond = decision.conditions[k]
     x = list(fixed_x) if fixed_x is not None else [None] * n
     y = [None] * n
     steps = 0
@@ -71,13 +109,26 @@ def _search_pair(decision, k, mode, budget, fixed_x=None):
     def possible():
         vx = _partial_values(decision.nodes, [x[u] for u in decision.variable])
         vy = _partial_values(decision.nodes, [y[u] for u in decision.variable])
-        if any(vx[m] is not None and vx[m] == vy[m] for m in path):
+        ex = _partial_executed(decision.nodes, vx)
+        ey = _partial_executed(decision.nodes, vy)
+
+        def unchanged(m):
+            return (ex[m] is False or ey[m] is False
+                    or (vx[m] is not None and vy[m] is not None and vx[m] == vy[m]))
+
+        def changed(m):
+            return (ex[m] is True and ey[m] is True and vx[m] is not None
+                    and vy[m] is not None and vx[m] != vy[m])
+
+        if any(unchanged(m) for m in path):
             return False
-        if check_others:
-            for other in others:
-                if all(vx[m] is not None and vy[m] is not None and vx[m] != vy[m]
-                       for m in other):
-                    return False
+        for j in others:
+            if mode != "unique-cause" and all(changed(m) for m in decision.path_nodes[j]):
+                return False
+            if changed(decision.path_nodes[j][0]) and (
+                    mode == "unique-cause"
+                    or (mode == "unique-cause+masking" and decision.variable[j] != v)):
+                return False
         return True
 
     def options(u):
@@ -92,7 +143,7 @@ def _search_pair(decision, k, mode, budget, fixed_x=None):
     def dfs(depth):
         nonlocal steps
         if depth == n:
-            return True                  # every node known: the pair is valid
+            return check(decision, tuple(x), tuple(y), cond)
         steps += 1
         if steps > budget:
             raise _BudgetExceeded
@@ -129,7 +180,9 @@ def pair_search_set(decision, mode, budget):
             status[cond], found = _search_pair(decision, k, mode, budget)
             if not found:
                 continue
-        # Self-check with the direct definition before the pair is reported
+        # Canonical tests (inputs not evaluated set to False, tree.canonical),
+        # then self-check with the direct definition before the pair is reported
+        found = tuple(canonical(decision, t) for t in found)
         if not check(decision, found[0], found[1], cond):
             raise AssertionError(f"internal error: invalid pair for {cond}")
         for t in found:

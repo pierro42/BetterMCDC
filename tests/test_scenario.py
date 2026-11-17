@@ -143,6 +143,23 @@ class ScenarioText(TemplateFiles):
                          "Out = (a || b) && non c")
 
 
+    def test_not_evaluated_inputs(self):
+        """Short-circuit forms: an input that the test doesn't evaluate gets
+        the NOT_EVALUATED text (by default the FALSE text). The test cases are
+        [S1] 3.6 Table 32 for A and then B: TT, FX, TF."""
+        text = "Z = A and then B"
+        decision = mcdc.parse_decision(text)
+        analysis = mcdc.analyse_mcdc(decision, "masking")
+        tests = [(i, *analysis.tests[i]) for i in analysis.tests]
+        base = ("[settings]\nOUTPUT_FILENAME = 'x'\nTRUE = 'T'\nFALSE = 'F'\n{extra}"
+                "[format]\nTEST_CASE_INPUT_SET = '${{input_value}}'\n"
+                "TEST_CASE_END = ' '\n")
+        for extra, expected in (("", "FF TF TT "), ("NOT_EVALUATED = 'X'\n", "FX TF TT ")):
+            with self.subTest(extra=extra):
+                template = self.load(base.format(extra=extra))
+                self.assertEqual(mcdc.render_scenario(template, decision, tests, text), expected)
+
+
 class TemplateErrors(TemplateFiles):
     """A wrong template is rejected when it is loaded, with the key named."""
 

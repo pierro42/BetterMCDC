@@ -588,7 +588,10 @@ def appendix_c():
 SOURCE_INCONSISTENT = {
     "C0604": "Profile 16:FFFTFFFF (string and number agree) has its only True on "
              "a row where 'not Bv and not Bv2' is False.",
-    "C0793": "Printed string FFFFFFFTFTFTFTFF does not match the profile number 341.",
+    "C0793": "Section C.4.13 heading: printed string FFFFFFFTFTFTFTFF (340) does not "
+             "match its number 341. This expression's truth table is 341.",
+    "C0794": "Same C.4.13 heading (340 / 341). This expression's truth table is 340: "
+             "the two expressions listed under the heading have different truth tables.",
     "C0839": "Profile number 28627 does not match the printed string "
              "FTTTFFFFFFFFFFFF (28672).",
 }
@@ -605,24 +608,301 @@ class S2AppendixC(unittest.TestCase):
                     decision = mcdc.parse_decision(entry["converted"])
                     self.assertEqual(len(decision.names), int(entry["conditions"]))
 
+    # Profiles checked by test_response_profiles (regression of the extraction)
+    PROFILES_CHECKED = 878     # every entry with a profile except SOURCE_INCONSISTENT
+
     def test_response_profiles(self):
         """[S2] Appendix C, p.C-3: the response profile is the result column of
-        the truth table. Every converted expression listed under a profile of
-        only T/F must have exactly that truth table."""
+        the truth table, first condition = most significant bit. For every
+        converted expression listed under a profile:
+        - transcription (profiles without "-"): the profile number has a 1
+          exactly where the string has T or t. Profiles with "-" (infeasible
+          combinations) are listed under the number of the context-free
+          function, which need not match the string (e.g. C0757);
+        - result: the tool's truth table gives the same T/F at every position
+          not marked "-";
+        - short-circuit forms: the report prints some results in lower case
+          without defining it. In every profile, the lower-case positions are
+          exactly the rows that are not a distinct test under the report's
+          numbering, which counts "a nonexecution due to short-circuit
+          operators as 0" (glossary): rows giving True to an input that the
+          test doesn't evaluate (tree.canonical). Checked as such."""
         checked = 0
         for entry in appendix_c():
             profile = entry["profile"]
-            if not entry["converted"] or not profile or set(profile) - set("TF"):
-                continue
-            if entry["id"] in SOURCE_INCONSISTENT:
+            if not profile or entry["id"] in SOURCE_INCONSISTENT:
                 continue
             with self.subTest(id=entry["id"], raw=entry["raw"]):
-                self.assertEqual(int(profile.replace("T", "1").replace("F", "0"), 2),
-                                 int(entry["profile_number"]), "transcription")
-                rows = mcdc.truth_table(mcdc.parse_decision(entry["converted"]))
-                self.assertEqual("".join("T" if r else "F" for _, r in rows), profile)
+                if "-" not in profile:
+                    bits = format(int(entry["profile_number"]), f"0{len(profile)}b")
+                    for letter, bit in zip(profile, bits):
+                        self.assertEqual(bit == "1", letter in "Tt", "transcription")
+                decision = mcdc.parse_decision(entry["converted"])
+                for (inputs, result), letter in zip(mcdc.truth_table(decision), profile):
+                    if letter == "-":
+                        continue
+                    expected = "T" if result else "F"
+                    if mcdc.canonical(decision, inputs) != inputs:
+                        expected = expected.lower()
+                    self.assertEqual(letter, expected, mcdc.row_number(inputs))
                 checked += 1
-        self.assertGreater(checked, 600)
+        self.assertEqual(checked, self.PROFILES_CHECKED)
+
+
+# ---------------------------------------------------------------------------
+# [S2] section 6.1.1, Figures 28-30 - minimum test sets of the Appendix C
+# expressions (context free), weighted by their occurrences
+# ---------------------------------------------------------------------------
+#
+# For each number of conditions N (2 to 6) and each form, the figures give how
+# many expression occurrences need a minimal coverage set of a given size
+# ("0" = no coverage set). Transcribed from PDF pages 56-58 (report p.39-41).
+# The labels are placed beside each dot; in Figure 30 three labels (344,
+# 119, 16) print between two grid lines, and are placed by the text of
+# 6.1.1: "the majority of test sets are still of size N + 1" (344 at 5 for
+# N = 4, 119 at 6 for N = 5) and "A few expressions did go below the N + 1
+# line ... (85 of 20,030)", which holds only with 16 at 6 for N = 6.
+
+FIGURE_28 = {2: {3: 2255, 0: 7}, 3: {4: 653, 0: 32}, 4: {5: 382, 7: 2, 0: 7},
+             5: {6: 120, 0: 11}, 6: {7: 78, 0: 1}}
+FIGURE_29 = {2: {3: 2255, 4: 2, 0: 5}, 3: {4: 654, 5: 1, 6: 18, 0: 12},
+             4: {5: 382, 6: 4, 7: 3, 10: 1, 0: 1}, 5: {6: 121, 7: 6, 8: 1, 9: 2, 0: 1},
+             6: {7: 78, 9: 1}}
+FIGURE_30 = {2: {3: 2255, 4: 2, 0: 5}, 3: {4: 671, 5: 1, 6: 9, 0: 4},
+             4: {4: 46, 5: 344, 10: 1}, 5: {5: 9, 6: 119, 7: 2, 8: 1},
+             6: {5: 14, 6: 16, 7: 49}}
+FIGURES = {"unique-cause": FIGURE_28, "unique-cause+masking": FIGURE_29, "masking": FIGURE_30}
+
+
+class S2Figures28To30(unittest.TestCase):
+    """[S2] 6.1: "These expressions ... were exhaustively examined ... to
+    determine the absolute smallest test set that would satisfy each of the
+    MCDC definitions." The Appendix C expressions include 69 with
+    short-circuit forms (and then / or else), evaluated as such by the
+    report (6.1.1, comment on figure 28)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sizes = {}             # (id, mode) -> size of the minimal set, 0 if none
+        for entry in appendix_c():
+            if 1 <= int(entry["conditions"]) <= 6:
+                decision = mcdc.parse_decision(entry["converted"])
+                for mode in mcdc.MODES:
+                    result = mcdc.analyse_mcdc(decision, mode, time_limit=30)
+                    assert result.optimal, (entry["id"], mode)
+                    complete = all(s == "covered" for s in result.status.values())
+                    cls.sizes[entry["id"], mode] = len(result.tests) if complete else 0
+
+    def test_occurrence_totals(self):
+        """The occurrences of the Appendix C expressions with N = 2 to 6
+        conditions add up to the column totals of Figure 28. (N = 1 differs:
+        see SOURCES.md.)"""
+        totals = {}
+        for entry in appendix_c():
+            n = int(entry["conditions"])
+            totals[n] = totals.get(n, 0) + int(entry["occurs"])
+        for n, column in FIGURE_28.items():
+            self.assertEqual(totals[n], sum(column.values()), n)
+
+    def test_figures_28_29_30(self):
+        """Figures 28 (unique-cause), 29 (unique-cause + masking) and 30
+        (masking): for each N, the occurrences per minimal set size."""
+        for mode, figure in FIGURES.items():
+            for n, expected in figure.items():
+                with self.subTest(mode=mode, conditions=n):
+                    found = {}
+                    for entry in appendix_c():
+                        if int(entry["conditions"]) == n:
+                            size = self.sizes[entry["id"], mode]
+                            found[size] = found.get(size, 0) + int(entry["occurs"])
+                    self.assertEqual(found, expected)
+
+    def test_one_condition(self):
+        """Figures 28-30, N = 1: every one-condition expression needs 2 tests
+        in every form."""
+        for entry in appendix_c():
+            if int(entry["conditions"]) == 1:
+                for mode in mcdc.MODES:
+                    self.assertEqual(self.sizes[entry["id"], mode], 2, entry["id"])
+
+    def test_section_6_1_1_statements(self):
+        """[S2] 6.1.1, p.39-40: two four-condition expressions with
+        short-circuit forms and coupled conditions require more than N + 1
+        unique-cause tests (expression C0827, which occurs twice: 7 tests);
+        with masking, 85 occurrences go below N + 1 and none below
+        RUTW(2*SQRT(N))."""
+        entry = next(e for e in appendix_c() if e["id"] == "C0827")
+        self.assertEqual((entry["conditions"], entry["occurs"]), ("4", "2"))
+        self.assertIn("and then", entry["converted"])
+        self.assertEqual(self.sizes["C0827", "unique-cause"], 7)
+        below, under_bound = 0, 0
+        for entry in appendix_c():
+            n = int(entry["conditions"])
+            if 1 <= n <= 6:
+                size = self.sizes[entry["id"], "masking"]
+                if 0 < size < n + 1:
+                    below += int(entry["occurs"])
+                if 0 < size < lower_bound("masking", n):
+                    under_bound += int(entry["occurs"])
+        self.assertEqual(below, 85)
+        self.assertEqual(under_bound, 0)
+
+
+# ---------------------------------------------------------------------------
+# Short-circuit forms: [S1] section 3.6, [S2] glossary, 3.1.2, Figures 5, 7
+# ---------------------------------------------------------------------------
+
+AND_THEN4 = case("Z = A and then B and then C and then D")
+OR_ELSE4 = case("Z = A or else B or else C or else D")
+S2_FIG7 = case("F = A or else (B and C)")
+
+
+def tests_x(texts):
+    """[S1] notation with X ("don't care"): 'TXXF' -> canonical row (X = F,
+    which is also [S2]'s numbering of a nonexecution as 0)."""
+    return {row(t.replace("X", "F")) for t in texts}
+
+
+class ShortCircuit(unittest.TestCase):
+
+    def test_glossary_short_circuit_forms(self):
+        """[S2] glossary, Short-Circuit Form Boolean Operator: and-then with a
+        False left-hand side returns False without evaluating the right-hand
+        side, otherwise returns the right-hand side; or-else with a True
+        left-hand side returns True without evaluating the right-hand side,
+        otherwise returns the right-hand side."""
+        for text, skip in (("R = a and then b", False), ("R = a or else b", True)):
+            decision = mcdc.parse_decision(text)
+            for inputs, result in mcdc.truth_table(decision):
+                with self.subTest(text=text, inputs=inputs):
+                    a, b = inputs
+                    self.assertEqual(result, skip if a == skip else b)
+                    self.assertEqual(mcdc.executed_inputs(decision, inputs),
+                                     (True, a != skip))
+
+    def test_figure_5_tree_xor(self):
+        """[S2] 3.1.2, Figure 5 (PDF p.34): tree_xor of F and T is T, of T
+        and T or F and F is F, and anything with Not-Executed is F."""
+        def masks(value):          # one node: (value bit, executed bit)
+            return (0, 0) if value == "NE" else (int(value == "T"), 1)
+        table = {("F", "F"): 0, ("F", "T"): 1, ("T", "F"): 1, ("T", "T"): 0}
+        for lhs in ("F", "T", "NE"):
+            for rhs in ("F", "T", "NE"):
+                expected = table.get((lhs, rhs), 0)
+                for value_ne in (0, 1):        # the value of a Not-Executed node doesn't matter
+                    x = (value_ne, 0) if lhs == "NE" else masks(lhs)
+                    y = (value_ne, 0) if rhs == "NE" else masks(rhs)
+                    self.assertEqual(mcdc.tree_xor(x, y) & 1, expected, (lhs, rhs))
+
+    def test_figure_7(self):
+        """[S2] 3.1.2, Figure 7, p.18: A or else (B and C), tests 2:(FTF) and
+        5:(TFT). (a) every node executed: OR F, A F, AND F, B T, C F;
+        (b) OR T, A T, and AND, B, C not executed; (c) influence tree: OR T,
+        A T, AND F, B F, C F. The influence set is (A)."""
+        decision = mcdc.parse_decision(S2_FIG7)
+        kinds = [kind for kind, _, _ in decision.nodes]
+        self.assertEqual(kinds, ["cond", "cond", "cond", "and", "orelse"])
+        a, b, c, and_, or_ = range(5)
+
+        def annotations(masks):
+            value, executed = masks
+            return {n: ("T" if value >> n & 1 else "F") if executed >> n & 1 else "X"
+                    for n in range(5)}
+        mx = mcdc.node_masks(decision, vec("FTF"))
+        my = mcdc.node_masks(decision, vec("TFT"))
+        self.assertEqual(annotations(mx), {or_: "F", a: "F", and_: "F", b: "T", c: "F"})
+        self.assertEqual(annotations(my), {or_: "T", a: "T", and_: "X", b: "X", c: "X"})
+        changed = mcdc.tree_xor(mx, my)
+        self.assertEqual({n: bool(changed >> n & 1) for n in range(5)},
+                         {or_: True, a: True, and_: False, b: False, c: False})
+        self.assertTrue(mcdc.is_masking_pair(decision, vec("FTF"), vec("TFT"), "A"))
+
+    def test_example_7(self):
+        """[S1] 3.6, Example 7, p.43-44, Z := A and then B and then C and then
+        D. Table 29 (TTTT, TTTF, TTFT, TFTT, FTTT) provides MC/DC, with no
+        difference between the and gate and the and then gate; Table 31
+        (TTTT, TTTF, TTFF, TFFF, FFFF) also provides MC/DC, because the
+        operands are evaluated as short circuit logic."""
+        table29 = ["TTTT", "TTTF", "TTFT", "TFTT", "FTTT"]
+        table31 = ["TTTT", "TTTF", "TTFF", "TFFF", "FFFF"]
+        for text, table in ((AND_THEN4, table29), ("Z = A and B and C and D", table29),
+                            (AND_THEN4, table31)):
+            with self.subTest(text=text, table=table):
+                decision, rows, pairs = exact(text, "masking")
+                self.assertEqual([rows[row(t)][1] for t in table], [True] + [False] * 4)
+                # each test as the tool numbers it (inputs not evaluated -> F)
+                tests = {mcdc.row_number(mcdc.canonical(decision, vec(t))) for t in table}
+                self.assertEqual({c for c in pairs
+                                  if not any(i in tests and j in tests for i, j in pairs[c])},
+                                 set())
+
+    def test_tables_32_and_33(self):
+        """[S1] 3.6, Tables 32 and 33, p.45: the minimum tests for a
+        four-input and gate (A and then B and then C and then D) and or gate
+        (A or else B or else C or else D) with short circuit logic, X being
+        "don't care"."""
+        for text, expected in ((AND_THEN4, ["TTTT", "FXXX", "TFXX", "TTFX", "TTTF"]),
+                               (OR_ELSE4, ["FFFF", "TXXX", "FTXX", "FFTX", "FFFT"])):
+            with self.subTest(text=text):
+                decision = mcdc.parse_decision(text)
+                result = mcdc.analyse_mcdc(decision, "masking")
+                self.assertTrue(result.optimal)
+                self.assertEqual(set(result.tests), tests_x(expected))
+                for t in expected:     # X exactly where the input is not evaluated
+                    inputs = vec(t.replace("X", "F"))
+                    self.assertEqual(mcdc.executed_inputs(decision, inputs),
+                                     tuple(c != "X" for c in t))
+                # Derived: with X as don't care, these five tests are all the
+                # distinct tests of the gate (every other row of the 16 only
+                # differs from one of them in an X position)
+                rows = mcdc.truth_table(decision)
+                self.assertEqual(set(mcdc.test_rows(decision, rows)), tests_x(expected))
+
+    def test_same_definitions_without_short_circuit(self):
+        """The definitions are written on the influence tree ([S2] 3.1.2).
+        Without short-circuit forms they must equal the direct statements:
+        unique-cause = only the condition changes and the result changes
+        ([S2] 3.1.1); unique-cause + masking = a masking pair where only the
+        condition's input changes (an edge, [S2] 5.1 and 7.1). Checked on
+        every expression of the suite and of Appendix C with up to 5 inputs."""
+        texts = list(ALL_EXPRESSIONS) + [e["converted"] for e in appendix_c()
+                                         if int(e["conditions"]) <= 5]
+        for text in texts:
+            decision = mcdc.parse_decision(text)
+            if decision.short_circuit or len(decision.names) > 5:
+                continue
+            rows = mcdc.truth_table(decision)
+            uc = mcdc.independence_pairs(decision, rows, "unique-cause")
+            ucm = mcdc.independence_pairs(decision, rows, "unique-cause+masking")
+            masking = mcdc.independence_pairs(decision, rows, "masking")
+            for k, cond in enumerate(decision.conditions):
+                with self.subTest(text=text, cond=cond):
+                    direct_uc, edges = [], []
+                    for i, j in itertools.combinations(range(len(rows)), 2):
+                        (xi, ri), (xj, rj) = rows[i], rows[j]
+                        ci = [xi[v] for v in decision.variable]
+                        cj = [xj[v] for v in decision.variable]
+                        if ri != rj and [n for n in range(len(ci)) if ci[n] != cj[n]] == [k]:
+                            direct_uc.append((i, j))
+                    for i, j in masking[cond]:
+                        if [u for u in range(len(decision.names))
+                                if rows[i][0][u] != rows[j][0][u]] == [decision.variable[k]]:
+                            edges.append((i, j))
+                    self.assertEqual(sorted(uc[cond]), direct_uc)
+                    self.assertEqual(sorted(ucm[cond]), sorted(edges))
+
+    def test_short_circuit_option(self):
+        """Tool requirement (input language): with short_circuit=True every
+        and / or (also et / ou / && / ||) is a short-circuit form, i.e. the
+        same tree as written with and then / or else."""
+        explicit = mcdc.parse_decision("Z = (a and then b) or else not (c or else d)")
+        for text in ("Z = (a and b) or not (c or d)", "Z = (a && b) || !(c || d)",
+                     "Z = (a et b) ou non (c ou d)"):
+            with self.subTest(text=text):
+                decision = mcdc.parse_decision(text, short_circuit=True)
+                self.assertEqual(decision.nodes, explicit.nodes)
+                self.assertTrue(decision.short_circuit)
+                self.assertFalse(mcdc.parse_decision(text).short_circuit)
 
 
 # ---------------------------------------------------------------------------
@@ -638,7 +918,8 @@ class InputSyntax(unittest.TestCase):
     def test_symbols_equal_keywords(self):
         import re
         for text in ALL_EXPRESSIONS:
-            symbols = re.sub(r"\bor\b", "||", re.sub(r"\band\b", "&&", text))
+            # and then / or else have no symbol: they are kept
+            symbols = re.sub(r"\bor\b(?! else)", "||", re.sub(r"\band\b(?! then)", "&&", text))
             symbols = re.sub(r"\bnot\s+", "!", symbols)
             if symbols == text:
                 continue

@@ -14,6 +14,12 @@ so et, ou and non can't be used as variable names.
 &&, || and ! are accepted as Boolean and / or / not (both operands are
 part of the decision, exactly like and / or), e.g.
     "Outvar = (cond1 || cond2_mem) && (!cond1 && cond3)"
+Short-circuit evaluation ([S2] glossary, [S1] 3.6): "and then" and
+"or else" evaluate their right operand only when needed, e.g.
+    "Out = a and then (b or else c)"
+With --short-circuit, every and / or (et / ou / && / ||) is evaluated that
+way, as && and || are in C. An input that a test doesn't evaluate is
+shown X ("don't care").
 The "Output =" part is optional (the output is then called "result").
 Inputs appear in the table in order of first appearance.
 
@@ -23,7 +29,8 @@ a#1 and a#2 are "coupled": they can never change independently.
 
 MC/DC definitions follow DOT/FAA/AR-01/18 (Chilenski, 2001): unique-cause
 (section 3.1.1), masking by graph coloring (section 3.1.2), and
-unique-cause + masking (section 3.2.2). Up to
+unique-cause + masking (section 3.2.2), with the not-executed operands
+of short-circuit forms handled by tree_xor (Figure 5). Up to
 --max-exact inputs the whole truth table is analysed and the smallest test
 set is searched; above, each independence pair is searched directly.
 
@@ -33,9 +40,10 @@ Usage:
     python main.py "Out = (a and bd) or not c" --mcdc unique-cause  # unique-cause MC/DC
     python main.py "Out = (a and bd) or not c" --mcdc unique-cause+masking
     python main.py "Out = (a and bd) or not c" --mcdc --csv         # same, as CSV
-    python main.py "Out = (a and bd) or not c" --mcdc -gen_scen input/test_setup.toml
+    python main.py "Out = (a && bd) || !c" --mcdc --short-circuit   # C evaluation
+    python main.py "Out = (a and bd) or not c" --mcdc -gen_scen input/test_setup_cpp.toml
                                     # also write a test scenario in the output folder
-                                    # (template format: see input/test_setup.toml)
+                                    # (template format: see input/test_setup_cpp.toml)
 """
 
 import argparse
@@ -44,7 +52,7 @@ from pathlib import Path
 
 from mcdc import (DEFAULT_MAX_EXACT, MODES, analyse_mcdc, load_template, output_filename,
                   parse_decision, print_mcdc_summary, print_table, render_scenario,
-                  truth_table)
+                  test_rows, truth_table)
 
 EXAMPLE_EXPRESSION = "Outvar = (cond1 or cond2_mem) and (not cond1 and cond3)"
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
@@ -65,9 +73,13 @@ def main():
     parser.add_argument("--max-exact", type=int, default=DEFAULT_MAX_EXACT, metavar="N",
                         help="number of inputs up to which the whole truth table is "
                              f"analysed (default: {DEFAULT_MAX_EXACT})")
+    parser.add_argument("--short-circuit", action="store_true",
+                        help="evaluate every and / or (also et, ou, &&, ||) as a "
+                             "short-circuit form, as && and || are in C; 'and then' "
+                             "and 'or else' are always short-circuit")
     parser.add_argument("-gen_scen", "--gen-scen", metavar="TEMPLATE",
                         help="also write a test scenario of the test cases, formatted "
-                             "by a TOML template file (e.g. input/test_setup.toml)")
+                             "by a TOML template file (e.g. input/test_setup_cpp.toml)")
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR, metavar="DIR",
                         help="folder where the scenario is written (default: the "
                              "'output' folder next to main.py, created if needed)")
@@ -77,7 +89,7 @@ def main():
         return
 
     try:
-        decision = parse_decision(args.expression)
+        decision = parse_decision(args.expression, short_circuit=args.short_circuit)
     except ValueError as e:
         parser.error(f"invalid expression: {e}")
     n = len(decision.names)
@@ -94,7 +106,8 @@ def main():
             parser.error(f"{n} inputs: the full truth table has 2^{n} rows; "
                          f"use --mcdc, or raise --max-exact")
         rows = truth_table(decision)
-        tests = [(i, *r) for i, r in enumerate(rows)]
+        # with short-circuit forms, one row per distinct test (exact.test_rows)
+        tests = [(i, *rows[i]) for i in test_rows(decision, rows)]
         print_table(decision, tests, csv=args.csv)
     else:
         analysis = analyse_mcdc(decision, args.mcdc, args.max_exact)

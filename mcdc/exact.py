@@ -14,44 +14,43 @@ import itertools
 import math
 import time
 
-from .tree import influence_set, node_mask
+from .tree import canonical, independence, influence_set, node_masks, tree_xor
+
+
+def test_rows(decision, rows):
+    """Rows that are distinct test cases. Without short-circuit forms: every
+    row. With them: only the canonical rows, whose inputs that are not
+    evaluated are False ([S2] numbers a nonexecution as 0; the other rows
+    repeat one of these tests, see tree.canonical)."""
+    if not decision.short_circuit:
+        return list(range(len(rows)))
+    return [i for i, (inputs, _) in enumerate(rows) if canonical(decision, inputs) == inputs]
 
 
 def independence_pairs(decision, rows, mode="masking"):
     """For each condition k, list the row pairs (i, j), i < j, that show k
-    independently affects the result.
+    independently affects the result, by the definitions of tree.independence
+    applied to every (False row, True row) pair of test_rows:
 
-    unique-cause ([S2] 3.1.1): only condition k differs between the two
-                  rows, and the result differs.
-    masking      ([S2] 3.1.2, graph coloring): the results differ and k is
-                  the only condition whose whole path up to the result
-                  changes value; the changes of the other conditions are
-                  blocked by an operator whose value stays the same.
-    unique-cause+masking ([S2] 3.2.2, stated on the n-cube in 5.1 and 7.1):
-                  the masking pairs that are an edge of the n-cube, i.e.
-                  whose two rows differ in just one input."""
-    m = len(decision.conditions)
-    false_rows = [i for i, row in enumerate(rows) if not row[1]]
-    true_rows = [i for i, row in enumerate(rows) if row[1]]
+    masking      ([S2] 3.1.2, graph coloring): k is the only condition whose
+                  whole path up to the result changes value (tree_xor of the
+                  two evaluated expression trees); the changes of the other
+                  conditions are blocked by an operator whose value stays
+                  the same, or are not executed.
+    unique-cause ([S2] 3.1.2, 3.1.1): in addition, only k changes (only k
+                  is True in the influence tree).
+    unique-cause+masking ([S2] 3.2.2, 5.1, 7.1): in addition to masking,
+                  only occurrences of k's input change."""
+    candidates = test_rows(decision, rows)
+    false_rows = [i for i in candidates if not rows[i][1]]
+    true_rows = [i for i in candidates if rows[i][1]]
+    masks = {i: node_masks(decision, rows[i][0]) for i in candidates}
     pairs = {c: [] for c in decision.conditions}
-    if mode in ("masking", "unique-cause+masking"):
-        masks = [node_mask(decision, inputs) for inputs, _ in rows]
-        for i, j in itertools.product(false_rows, true_rows):
-            if mode == "unique-cause+masking" and sum(
-                    a != b for a, b in zip(rows[i][0], rows[j][0])) != 1:
-                continue                     # not an edge: more than one input changes
-            influence = influence_set(decision, masks[i], masks[j])
-            if len(influence) == 1:
-                pairs[decision.conditions[influence[0]]].append(tuple(sorted((i, j))))
-        return pairs
-
-    values = [sum(1 << k for k in range(m) if inputs[decision.variable[k]])
-              for inputs, _ in rows]
     for i, j in itertools.product(false_rows, true_rows):
-        diff = values[i] ^ values[j]
-        # exactly one condition changed
-        if diff and diff & (diff - 1) == 0:
-            pairs[decision.conditions[diff.bit_length() - 1]].append(tuple(sorted((i, j))))
+        changed = tree_xor(masks[i], masks[j])
+        influence = influence_set(decision, changed)
+        if len(influence) == 1 and independence(decision, changed, influence[0], mode):
+            pairs[decision.conditions[influence[0]]].append(tuple(sorted((i, j))))
     return pairs
 
 
@@ -60,7 +59,7 @@ def _masking_bound(conditions):
     return root if root * root == 4 * conditions else root + 1
 
 
-def lower_bound(mode, conditions, variables=None):
+def lower_bound(mode, conditions, variables=None, short_circuit=False):
     """Fewest tests that can cover `conditions` conditions ([S2] 5.1).
 
     unique-cause: N + 1 (Theorem 1).
@@ -76,9 +75,19 @@ def lower_bound(mode, conditions, variables=None):
         (so Theorem 4 applies), and picking one pair per input gives V
         n-cube edges in distinct directions, which can't form a cycle (a
         cycle crosses each direction an even number of times), i.e. a forest
-        with V edges, so at least V + 1 tests."""
+        with V edges, so at least V + 1 tests.
+    short-circuit forms: RUTW(2*SQRT(M)) for every form. With short-circuit
+        operators the inputs that are not evaluated may differ within a
+        pair, so the pairs are no longer n-cube edges and the N + 1 / V + 1
+        arguments above don't apply ([S2] figure 28 counts short-circuit
+        expressions needing more than N + 1 tests, none needing fewer, but
+        that is not a proof). The Theorem 4 argument still holds: every pair
+        of every form joins one False and one True test and serves a single
+        condition."""
     if conditions == 0:
         return 0
+    if short_circuit:
+        return _masking_bound(conditions)
     if mode == "unique-cause":
         return conditions + 1
     if mode == "unique-cause+masking":
@@ -107,8 +116,9 @@ def minimal_mcdc_set(pairs, forest_bound=True, time_limit=2.0, bound=None):
     """Pick one independence pair per condition so that the total number
     of distinct test cases is minimal (branch and bound).
 
-    `forest_bound` is only valid for unique-cause pairs: they are then
-    hypercube edges in distinct dimensions, i.e. a forest. It is not valid
+    `forest_bound` is only valid for unique-cause pairs without short-circuit
+    forms: they are then hypercube edges in distinct dimensions, i.e. a
+    forest. It is not valid
     for unique-cause + masking pairs (the edges of coupled conditions can
     form a cycle).
 

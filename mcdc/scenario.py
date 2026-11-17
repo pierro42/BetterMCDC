@@ -4,7 +4,7 @@ Test scenario generation from a user template (TOML file).
 
 The template has three tables:
   [variables]  user values, usable as ${NAME} in every text
-  [settings]   STARTING_TEST_NUMBER, TRUE, FALSE, OUTPUT_FILENAME
+  [settings]   STARTING_TEST_NUMBER, TRUE, FALSE, NOT_EVALUATED, OUTPUT_FILENAME
   [format]     the texts written to the scenario (all optional):
                TEST_PREAMBLE, TEST_CASE_START, TEST_CASE_INPUT_SET,
                TEST_CASE_OUTPUT_SET, TEST_CASE_PROCESS,
@@ -28,6 +28,8 @@ import string
 import tomllib
 from typing import Dict, NamedTuple
 
+from .tree import executed_inputs
+
 # Placeholders the tool provides, and where they can be used
 _GLOBAL = {"expression", "output_name"}
 _PER_TEST = _GLOBAL | {"test_number", "row", "output_value", "output_inverse"}
@@ -42,7 +44,7 @@ FORMAT_KEYS = {
     "TEST_CASE_END": _PER_TEST,
     "TEST_EPILOGUE": _GLOBAL,
 }
-SETTING_KEYS = ("STARTING_TEST_NUMBER", "TRUE", "FALSE", "OUTPUT_FILENAME")
+SETTING_KEYS = ("STARTING_TEST_NUMBER", "TRUE", "FALSE", "NOT_EVALUATED", "OUTPUT_FILENAME")
 _BUILTIN = _INPUT
 
 
@@ -53,6 +55,7 @@ class ScenarioTemplate(NamedTuple):
     false: str                               # text written for False
     filename: string.Template                # OUTPUT_FILENAME
     texts: Dict[str, string.Template]        # [format], every key present
+    not_evaluated: str = "0"                 # text for an input the test doesn't evaluate
 
 
 def _table(data, name):
@@ -119,6 +122,9 @@ def load_template(path):
         raise ValueError("[settings] STARTING_TEST_NUMBER must be a whole number, e.g. 1")
     true = _text(settings.get("TRUE", "1"), "[settings] TRUE")
     false = _text(settings.get("FALSE", "0"), "[settings] FALSE")
+    # an input that a test doesn't evaluate (short-circuit forms): any value
+    # works; by default the FALSE text, as the tool numbers it (tree.canonical)
+    not_evaluated = _text(settings.get("NOT_EVALUATED", false), "[settings] NOT_EVALUATED")
     if "OUTPUT_FILENAME" not in settings:
         raise ValueError("[settings] OUTPUT_FILENAME is missing")
     allowed = set(variables)
@@ -135,7 +141,7 @@ def load_template(path):
         if not isinstance(value, str):
             raise ValueError(f"[format] {key} must be a text, e.g. {key} = '''...'''")
         compiled[key] = _compile(value, f"[format] {key}", allowed | scope)
-    return ScenarioTemplate(variables, start, true, false, filename, compiled)
+    return ScenarioTemplate(variables, start, true, false, filename, compiled, not_evaluated)
 
 
 def _expression_text(expression):
@@ -154,9 +160,11 @@ def render_scenario(template, decision, tests, expression):
         case = dict(common, test_number=str(template.start + n), row=str(row + 1),
                     output_value=value(result), output_inverse=value(not result))
         out.append(template.texts["TEST_CASE_START"].substitute(case))
-        for name, v in zip(decision.names, inputs):
+        evaluated = executed_inputs(decision, inputs)
+        for name, v, ex in zip(decision.names, inputs, evaluated):
             out.append(template.texts["TEST_CASE_INPUT_SET"].substitute(
-                case, input_name=name, input_value=value(v)))
+                case, input_name=name,
+                input_value=value(v) if ex else template.not_evaluated))
         for key in ("TEST_CASE_OUTPUT_SET", "TEST_CASE_PROCESS",
                     "TEST_CASE_OUTPUT_CHECK", "TEST_CASE_END"):
             out.append(template.texts[key].substitute(case))

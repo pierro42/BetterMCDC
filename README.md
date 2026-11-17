@@ -69,6 +69,8 @@ The expression is one quoted argument, `"Output = <expression>"`. `Output` is th
 | and | `and`, `et`, `&&` |
 | or | `or`, `ou`, `\|\|` |
 | not | `not`, `non`, `!` |
+| and, short-circuit | `and then` (or any and with `--short-circuit`) |
+| or, short-circuit | `or else` (or any or with `--short-circuit`) |
 | xor | `!=` |
 | equivalence (xnor) | `==` |
 | constants | `True`, `False` |
@@ -78,13 +80,14 @@ The expression is one quoted argument, `"Output = <expression>"`. `Output` is th
 - **Mixing spellings:** allowed. `(a ou b) && !c` is valid.
 - **Precedence:** as in Python: `not`, then `and`, then `or`. `==` and `!=` bind tighter than `not`, so add parentheses when you mean `(not a) == b`.
 - **`!`:** binds tighter than every operator, as in C, so `!a == b` means `(!a) == b`.
-- **Evaluation:** `&&` and `||` are Boolean and/or. Both operands are part of the decision; there is no short-circuit evaluation.
+- **Evaluation:** by default, `and` / `&&` and `or` / `||` are Boolean: both operands are always evaluated. `and then` and `or else` are short-circuit forms: the right operand is evaluated only when the left one doesn't decide the result. To analyse C code, where `&&` and `||` are short-circuit, add `--short-circuit`: every and / or is then evaluated that way. See [Short-circuit evaluation](#short-circuit-evaluation).
+- **`then` and `else`:** right after `and` / `or` they are part of the operator, so they can't be variable names there.
 - **Chained comparisons:** `a != b != c` is rejected as ambiguous. Write `(a != b) != c`.
 
 Errors are reported with a message; syntax errors give the column in the text as you typed it:
 
 ```
-main.py: error: invalid expression: unsupported syntax: 'a + b' (allowed: names, and/et/&&, or/ou/||, not/non/!, ==, !=, True, False)
+main.py: error: invalid expression: unsupported syntax: 'a + b' (allowed: names, and/et/&&, or/ou/||, and then, or else, not/non/!, ==, !=, True, False)
 ```
 
 ### Conditions and repeated variables
@@ -98,6 +101,7 @@ MC/DC is about *conditions*: each occurrence of a variable in the expression is 
 | `--mcdc` | reduce the table to a minimal masking MC/DC test set |
 | `--mcdc unique-cause+masking` | the same with unique-cause + masking MC/DC |
 | `--mcdc unique-cause` | the same with unique-cause MC/DC |
+| `--short-circuit` | evaluate every and / or (also `et`, `ou`, `&&`, `\|\|`) as a short-circuit form, as in C |
 | `--csv` | print the table as CSV (the summary is not printed) |
 | `--max-exact N` | number of inputs up to which the whole truth table is analysed (default 10); see [Large expressions](#large-expressions) |
 | `-gen_scen TEMPLATE` (or `--gen-scen`) | also write a test scenario file; see [docs/SCENARIO_GENERATION.md](docs/SCENARIO_GENERATION.md) |
@@ -106,6 +110,7 @@ MC/DC is about *conditions*: each occurrence of a variable in the expression is 
 ## Reading the MC/DC summary
 
 - **`#` column:** the row number in the full truth table, so a reduced table traces back to the full one. The first input is the most significant bit, and numbering starts at 1.
+- **`X`:** with short-circuit forms, an input that the test doesn't evaluate ("don't care"). Its row number counts it as 0.
 - **Independence pairs:** for each condition, the two test cases that show it independently affects the output.
   - `(N possible pair(s))` is how many valid pairs exist.
   - `masked:` lists the other conditions that also change within that pair; their effect is blocked by another operator. In unique-cause + masking, these can only be other occurrences of the same variable.
@@ -164,6 +169,30 @@ Usually your plans and your structural coverage tool decide for you; otherwise u
 - **Test count:** masking needs at most as many tests as the other forms, and far fewer for large expressions. The published lower bounds are N + 1 tests for unique-cause and ⌈2√N⌉ for masking.
 - **Review:** the unique-cause forms are easier to check by hand, since exactly one input changes per pair.
 
+## Short-circuit evaluation
+
+With `and then` / `or else`, or with `--short-circuit`, the right operand of an and / or is evaluated only when needed. An input that a test doesn't evaluate can't influence the result, so:
+- such inputs are shown `X` ("don't care", as in the NASA tutorial), and tests that only differ there are the same test;
+- a pair can change such an input freely: the FAA report's influence tree counts a condition as changed only when it is evaluated in both tests.
+
+Example, `A and then B and then C and then D`: 5 tests instead of 16, exactly the NASA tutorial's Table 32.
+
+```bash
+python main.py "Z = A and then B and then C and then D" --mcdc
+```
+
+```
+#  | A | B | C | D | Z
+---+---+---+---+---+--
+1  | 0 | X | X | X | 0
+9  | 1 | 0 | X | X | 0
+13 | 1 | 1 | 0 | X | 0
+15 | 1 | 1 | 1 | 0 | 0
+16 | 1 | 1 | 1 | 1 | 1
+```
+
+The evaluation must match the code under test: in C and C++, `&&` and `||` are short-circuit, so use `--short-circuit`; in Ada, `and` / `or` are Boolean and `and then` / `or else` are short-circuit. A scenario file gives such inputs the template's `NOT_EVALUATED` value (by default the FALSE text).
+
 ## Large expressions
 
 Up to `--max-exact` inputs (default 10), the tool builds the whole truth table, lists every independence pair and searches for the smallest test set.
@@ -184,7 +213,9 @@ mcdc/                      the tool
   analysis.py              engine choice
   report.py                text / CSV output
   scenario.py              test scenario generation
-input/test_setup.toml      example scenario template (C++)
+input/test_setup_cpp.toml  example scenario template (C++)
+input/test_setup_python.toml  example scenario template (Python)
+examples/                  example code under test
 output/                    generated scenario files
 tests/                     qualification test suite (see tests/SOURCES.md)
 docs/                      implementation and scenario documentation
@@ -193,7 +224,7 @@ ressources/                reference documents (PDF)
 
 ## Tests
 
-Run from the project folder (about 25 s):
+Run from the project folder (under a minute):
 
 ```bash
 python -m unittest discover -s tests -v

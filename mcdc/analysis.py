@@ -21,7 +21,7 @@ DEFAULT_MAX_EXACT = 10
 def _bound(decision, mode, covered):
     """Lower bound for the covered conditions (exact.lower_bound)."""
     inputs = {decision.variable[decision.conditions.index(c)] for c in covered}
-    return lower_bound(mode, len(covered), len(inputs))
+    return lower_bound(mode, len(covered), len(inputs), decision.short_circuit)
 
 
 class Analysis(NamedTuple):
@@ -48,7 +48,8 @@ def analyse_mcdc(decision, mode="masking", max_exact=DEFAULT_MAX_EXACT,
         pairs = independence_pairs(decision, rows, mode)
         bound = _bound(decision, mode, [c for c in pairs if pairs[c]])
         selected, choice, optimal = minimal_mcdc_set(
-            pairs, forest_bound=mode == "unique-cause", time_limit=time_limit, bound=bound)
+            pairs, forest_bound=mode == "unique-cause" and not decision.short_circuit,
+            time_limit=time_limit, bound=bound)
         status = {c: "covered" if pairs[c] else "impossible" for c in decision.conditions}
         return Analysis("exact", {i: rows[i] for i in sorted(selected)}, choice, status,
                         {c: len(p) for c, p in pairs.items()}, optimal, bound)

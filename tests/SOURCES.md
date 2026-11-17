@@ -1,6 +1,6 @@
 # Qualification test suite: sources and traceability
 
-Run from the project folder (Python standard library only, about 25 s):
+Run from the project folder (Python standard library only, under a minute):
 
 ```
 python -m unittest discover -s tests -v
@@ -15,9 +15,10 @@ python -m unittest discover -s tests -v
 
 No standard (DO-178C, DO-330, IEC 61508, ISO 26262) publishes a test-data set. These two FAA/NASA reports are the
 source of every expected result in the suite. They use the definitions the tool implements:
-- **Unique-cause MC/DC:** S2 §3.1.1 and §3.2.1.
-- **Masking MC/DC:** graph coloring, S2 §3.1.2, which is also the gate analysis of S1 §3.2.
+- **Masking MC/DC:** graph coloring, S2 §3.1.2, which is also the gate analysis of S1 §3.2: the influence set is {k}.
+- **Unique-cause MC/DC:** S2 §3.1.1, §3.1.2 ("only ci has a True in the influence tree") and §3.2.1.
 - **Unique-cause + masking MC/DC:** S2 §3.2.2, stated on the n-cube in §5.1 and §7.1: an *edge* pair (only one input changes) that is a valid graph-coloring pair.
+- **Short-circuit forms (and then / or else):** S2 glossary, §3.1.2 rule b and Figure 5 (`tree_xor`, Not-Executed), S1 §3.6. The three definitions are applied to the influence tree, where a node is changed only if it is executed in both tests.
 - **Minimum number of tests:** S2 §5.1, Theorems 1 and 4. Theorem 2 is contradicted by the report's own data and is not used (see [S2 §5.1 Theorem 2](#s2-51-theorem-2)).
 
 ## Code under test
@@ -27,7 +28,7 @@ source of every expected result in the suite. They use the definitions the tool 
 | Module | Contents | Review against |
 |---|---|---|
 | `mcdc/decision.py` | input language → conditions and expression tree | tool requirements (input language) |
-| `mcdc/tree.py` | evaluation, truth table, `is_masking_pair`, `is_unique_cause_pair`, `is_unique_cause_masking_pair` | S2 §3.1.1, §3.1.2, §3.2.2 (with §5.1 and §7.1), line by line |
+| `mcdc/tree.py` | evaluation, executed nodes, `tree_xor`, `independence` (the three definitions), `canonical`, truth table | S2 glossary, §3.1.1, §3.1.2 (rule b, Figure 5), §3.2.2 (with §5.1 and §7.1), line by line |
 | `mcdc/exact.py` | all pairs from the truth table, minimal set, `lower_bound` | S2 §3.1, §5.1 |
 | `mcdc/pair_search.py` | engine for large expressions | every pair it reports is checked with `tree.py` before output |
 | `mcdc/analysis.py` | engine choice (`--max-exact`) | |
@@ -38,6 +39,7 @@ source of every expected result in the suite. They use the definitions the tool 
 
 - **Test vectors:** written as in the sources, first condition first ("TFTF"). Row numbers come from them with the first input as the most significant bit, which is also S2's numbering ("4:(TFF)").
 - **xor:** written `!=`, the tool's xor operator.
+- **X (S1 §3.6):** an input that the test doesn't evaluate ("don't care"). The tool numbers such a test with X = F, as S2 numbers "a nonexecution due to short-circuit operators as 0" (glossary, Condition Combination).
 - **Exercise 3.3c:** the relational condition `Airspeed < 40.0` is the Boolean input `Airspeed_lt_40`, with 35 knots → T and 45 knots → F, as the S1 solution does on its comparator line.
 
 ## Traceability
@@ -71,14 +73,25 @@ source of every expected result in the suite. They use the definitions the tool 
 | `S2MinimumNumberOfTests.test_theorems_1_and_4` | S2 §5.1, Theorems 1 and 4, p.27-33 | every set ≥ N + 1 (unique-cause, and unique-cause + masking without repeated inputs) or ⌈2√M⌉ (masking, and unique-cause + masking with repeated inputs, whose sets are also masking sets) |
 | `S2MinimumNumberOfTests.test_theorem_2_not_applied` | S2 §5.1, Theorem 2, p.31 | **derived check**: Theorem 2 is not used (see below) |
 | `S2MinimumNumberOfTests.test_minimal_sets_by_exhaustive_search` | — | **derived check**: for every expression of the suite with ≤ 4 inputs and each form, the size found by trying every subset of rows = the tool's size, proven minimal, with a lower bound not above it |
-| `S2AppendixC.test_condition_counts` | S2 App. C, section headings | each converted expression has the stated number of conditions |
-| `S2AppendixC.test_response_profiles` | S2 App. C, p.C-3 (definition), C-4 to C-60 | 702 real airborne expressions: truth table = published response profile |
-| `InputSyntax.test_symbols_equal_keywords` | tool requirement (input language) | every case above written with `&&` / `\|\|` / `!` gives the same conditions, truth table and pairs as with `and` / `or` / `not` |
+| `S2AppendixC.test_condition_counts` | S2 App. C, section headings | each of the 1112 expressions has the stated number of conditions |
+| `S2AppendixC.test_response_profiles` | S2 App. C, p.C-3 (definition), C-4 to C-60 | 878 real airborne expressions, 55 of them with short-circuit forms: truth table = published response profile (see below) |
+| `S2Figures28To30.test_occurrence_totals` | S2 App. C Occurs column, §6.1.1 Fig. 28 | the occurrences of the expressions with 2 to 6 conditions add up to the figure's column totals |
+| `S2Figures28To30.test_figures_28_29_30` | S2 §6.1.1, Figs. 28, 29, 30, p.39-41 | for each form and N = 2 to 6: the number of occurrences per minimal test set size, and with no coverage set, exactly as plotted (47 values) |
+| `S2Figures28To30.test_one_condition` | S2 §6.1.1, Figs. 28-30 | every one-condition expression: 2 tests in every form |
+| `S2Figures28To30.test_section_6_1_1_statements` | S2 §6.1.1, p.39-40 | the 2 four-condition short-circuit expressions with coupled conditions needing 7 unique-cause tests (C0827, occurs twice); masking: 85 occurrences below N + 1, none below ⌈2√N⌉ |
+| `ShortCircuit.test_glossary_short_circuit_forms` | S2 glossary, Short-Circuit Form | and then / or else: result, and right-hand side evaluated only when needed |
+| `ShortCircuit.test_figure_5_tree_xor` | S2 §3.1.2, Fig. 5, p.17 | the 9 cells of the tree_xor table |
+| `ShortCircuit.test_figure_7` | S2 §3.1.2, Fig. 7, p.18 | A or else (B and C), (FTF, TFT): both evaluated trees, the influence tree, influence set (A) |
+| `ShortCircuit.test_example_7` | S1 §3.6, Example 7, Tables 29 and 31, p.43-44 | both test sets give MC/DC for A and then B and then C and then D; Table 29 also for the and gate |
+| `ShortCircuit.test_tables_32_and_33` | S1 §3.6, Tables 32-33, p.45 | the minimal sets of the 4-input and-then and or-else gates, X included, proven minimal; **derived**: these 5 tests are all the distinct tests of each gate |
+| `ShortCircuit.test_same_definitions_without_short_circuit` | S2 §3.1.1, §5.1, §7.1 | **derived check**: without short-circuit forms, the influence-tree definitions give exactly the direct statements (only k changes; only k's input changes) on the suite and on Appendix C up to 5 inputs |
+| `ShortCircuit.test_short_circuit_option` | tool requirement (input language) | `--short-circuit` makes every and / or (et / ou / && / \|\|) a short-circuit form |
+| `InputSyntax.test_symbols_equal_keywords` | tool requirement (input language) | every case above written with `&&` / `\|\|` / `!` gives the same conditions, truth table and pairs as with `and` / `or` / `not` (and then / or else kept) |
 | `InputSyntax.test_not_binds_like_c` | tool requirement (input language) | `!` binds tighter than every other operator, as in C: `!a == b` is `(!a) == b` |
 | `PairSearchEngine.*` | all the cases above | in each of the three forms, the pair-search engine reaches the same coverable/impossible conclusions, with valid pairs, and its pair for S2 §3.1.1 is one of the published pairs |
 | `AppendixCCrossCheck.*` | expressions of S2 App. C | **engine cross-check, not a published oracle**: see below |
 | `test_scenario.ScenarioText.test_mcdc_scenario` | tool requirement (scenario generation); vectors from S1 §3.1.1, Table 5 | the 3-input and set rendered with a template gives the exact expected text (section order, one line per input, numbering, `${row}`, inverse output, TRUE/FALSE texts, `{ } " % \ $$` literal) and file name |
-| `test_scenario.ScenarioText.*` (other) | tool requirement (scenario generation) | full truth table without `--mcdc`, defaults, `${expression}` as typed |
+| `test_scenario.ScenarioText.*` (other) | tool requirement (scenario generation) | full truth table without `--mcdc`, defaults, `${expression}` as typed, `NOT_EVALUATED` for inputs a test doesn't evaluate (vectors from S1 Table 32) |
 | `test_scenario.TemplateErrors.*` | tool requirement (scenario generation) | a wrong template (unknown or out-of-scope placeholder, bad `$`, unknown key, bad value, not TOML) is rejected with the key named |
 | `test_scenario.CommandLine.*` | tool requirement (command line) | `-gen_scen` / `--gen-scen` write the file (default folder `output/`, or `--output-dir`); `--csv` output stays clean; a template error stops before anything is written; no expression → help |
 
@@ -107,31 +120,52 @@ Theorem 2 (p.31) says that unique-cause + masking needs at least M + 1 tests for
 - **(B and not D) or (not B and D):** M = 4 occurrences but only 2 inputs, so 4 possible tests. Every occurrence has an edge pair among them: B#1 (FF, TF), D#1 (TF, TT), B#2 (FT, TT), D#2 (FF, FT). For B#1, for example: B toggles, `B and not D` goes F→T, `not B and D` stays F (D = F), so the influence set is {B#1}. 4 tests < M + 1 = 5.
 - **S2 Fig. 10, (A and B) or (A and C) or (B and C):** M = 6, and the tool finds a 6-test unique-cause + masking set (< 7). Each of its pairs passes `is_unique_cause_masking_pair`, and `test_minimal_sets_by_exhaustive_search` confirms 6 by trying every subset of rows.
 
-The edges of coupled conditions can form a cycle in the n-cube (B#1, D#1, B#2, D#2 above form a square), which the theorem's proof doesn't allow for. The tool uses max(V + 1, ⌈2√M⌉) instead, V being the number of distinct inputs among the M conditions; the proof is in `exact.lower_bound` and docs/MCDC_IMPLEMENTATION.md §9. Without repeated inputs V = M, and this is Theorem 1.
+The edges of coupled conditions can form a cycle in the n-cube (B#1, D#1, B#2, D#2 above form a square), which the theorem's proof doesn't allow for. The tool uses max(V + 1, ⌈2√M⌉) instead, V being the number of distinct inputs among the M conditions; the proof is in `exact.lower_bound` and docs/MCDC_IMPLEMENTATION.md §10. Without repeated inputs V = M, and this is Theorem 1.
 
 ## S2 Appendix C data
 
 `data/ar0118_appendix_c.tsv` is generated from the report text by `tools/extract_ar0118_appendix_c.py` (see its docstring for the exact conversion rules).
 
-**What it contains:** 1112 expressions with their section, page, stated number of conditions and response profile. 1023 of them are converted to the tool's grammar. The other 89 are not converted:
-- 69 use `and then` / `or else`;
-- 16 use `xor`;
-- 2 have a call or index syntax inside a condition;
-- 2 are `Bv = not (Bv2)`.
+**What it contains:** 1112 expressions with their section, page, stated number of conditions, response profile and number of occurrences in the software. All of them are converted to the tool's grammar; 69 use the short-circuit forms `and then` / `or else`.
 
-**How expressions are converted:** following the report's own counting, each relational expression (e.g. `Ev = El`) is one condition, and its complement (`Ev /= El`) is the same condition negated. This reproduces both the stated number of conditions and the profiles.
+**Two texts of the report are used** (both from `pdftotext`, xpdf 4.00): the `-layout` text for the expressions and profiles, and the `-table` text for the Occurs column, because the `-layout` text sometimes moves an Occurs value onto a heading line. The two are matched expression by expression; any difference stops the extraction. The totals then match Figure 28 for 2 to 6 conditions.
 
-**Which profiles are checked:** only profiles made of T/F, 705 entries. Profiles containing `-` (infeasible combinations) or lower-case letters (short-circuit, not executed) aren't used. Three entries are excluded because the report contradicts itself, which is listed in `SOURCE_INCONSISTENT`:
+**How expressions are converted:** following the report's own counting, each relational expression (e.g. `Ev = El`) is one condition, and its complement (`Ev /= El`) is the same condition negated. This reproduces both the stated number of conditions and the profiles. `xor` becomes the tool's `!=` (parenthesised, since Ada doesn't mix xor with and / or), `Bv = not (Bv2)` becomes `(Bv == (not Bv2))`, and parentheses inside a condition (e.g. `Fxv > (Fxv2-url)`) stay part of its text.
+
+**Which profiles are checked:** every profile, 878 entries once the four inconsistent ones are left out:
+- **result:** the tool's truth table gives the same T/F at every position, except positions marked `-` (combinations infeasible in context, which the tool doesn't model);
+- **transcription:** for profiles without `-`, the profile number has a 1 exactly where the string has T or t. Profiles with `-` are listed under the number of the context-free function, which need not match their string (e.g. C0757, `------FF--FFFFTF` under number 1);
+- **lower-case letters:** they only appear with short-circuit forms, and the report doesn't define them. In every profile they are exactly the rows that are not a distinct test under the report's numbering of a nonexecution as 0: rows that give True to an input the test doesn't evaluate. The test checks this, so the tool's not-executed inputs are checked on the 55 profiles of short-circuit expressions (46 without `-`, 9 with; 53 of them contain lower-case letters).
+
+Four entries are excluded because the report contradicts itself, which is listed in `SOURCE_INCONSISTENT`:
 
 | Id | Inconsistency in the source |
 |---|---|
 | C0604 | profile 16:FFFTFFFF (string and number agree) has its only T on a row where `not Bv and not Bv2` is False |
-| C0793 | printed string FFFFFFFTFTFTFTFF ≠ profile number 341 (the number matches the expression) |
+| C0793, C0794 | heading C.4.13: printed string FFFFFFFTFTFTFTFF (340) ≠ number 341. C0793's truth table is 341, C0794's (`(Bv xor (Bv2 and Bv3)) and Bv4`) is 340: the two expressions under this heading have different truth tables |
 | C0839 | profile number 28627 ≠ printed string (28672; the string matches the expression) |
 
+**Extraction defects fixed** while adding the occurrences (the conversions are unchanged): the statement code `'b` is also printed `b'`, which had stayed in the text of C0075; the column heading "Statement Occurs" had stayed in the text of C0352 and C0482.
+
+## S2 §6.1.1, Figures 28-30
+
+The figures plot, for 1 to 6 conditions and each form, how many expression occurrences of Appendix C need a minimal coverage set of each size, or have none ("context free": every combination feasible). S2 computed them exhaustively. The test computes the same with the tool and compares every plotted value (47 of them):
+
+| Figure | Form | N = 2 | N = 3 | N = 4 | N = 5 | N = 6 |
+|---|---|---|---|---|---|---|
+| 28 | unique-cause | 3: 2255, none: 7 | 4: 653, none: 32 | 5: 382, 7: 2, none: 7 | 6: 120, none: 11 | 7: 78, none: 1 |
+| 29 | unique-cause + masking | 3: 2255, 4: 2, none: 5 | 4: 654, 5: 1, 6: 18, none: 12 | 5: 382, 6: 4, 7: 3, 10: 1, none: 1 | 6: 121, 7: 6, 8: 1, 9: 2, none: 1 | 7: 78, 9: 1 |
+| 30 | masking | 3: 2255, 4: 2, none: 5 | 4: 671, 5: 1, 6: 9, none: 4 | 4: 46, 5: 344, 10: 1 | 5: 9, 6: 119, 7: 2, 8: 1 | 5: 14, 6: 16, 7: 49 |
+
+"size: occurrences". This checks, on real airborne expressions and including the 69 with short-circuit forms, the three definitions, the not-executed handling, and the minimality of the sets.
+
+**Transcription:** the labels are placed beside each dot; read with `pdftotext -layout` (PDF pages 56-58). Three labels of Figure 30 (344, 119, 16) print between two grid lines. They are placed by the text of §6.1.1: "the majority of test sets are still of size N + 1" (344 at 5 for N = 4, 119 at 6 for N = 5), and "85 of 20,030" occurrences below N + 1, which only adds up with 16 at 6 for N = 6.
+
+**Inconsistency in the source:** the Occurs column lists 16,538 one-condition occurrences, Figure 28 plots 16,491, and the report's total of 20,256 expressions is 47 below the column's 20,303 too. The 47 can't be identified (no statement type adds up to 47), so the one-condition count is not compared; every one-condition expression needs 2 tests in every form, as plotted. The text's "20,030" for 1 to 6 conditions also differs from Figure 28's 20,039.
+
 **The engine cross-check is not a published oracle.** Appendix C gives the expressions but no MC/DC answers, so `AppendixCCrossCheck` only checks the tool against itself:
-- **Up to 8 inputs (963 expressions):** the pair-search engine must agree with the exact engine on which conditions are coverable.
-- **Above 8 inputs (60 expressions, up to 76 conditions):** every condition must end covered or proven impossible, and every pair must pass the direct definition check (`is_masking_pair` / `is_unique_cause_masking_pair` / `is_unique_cause_pair`). Those checks are themselves validated against the published pairs in `PairSearchEngine.test_published_pairs_pass_direct_check` and `S2UniqueCauseMasking.test_published_pairs_direct_check`.
+- **Up to 8 inputs (1046 expressions):** the pair-search engine must agree with the exact engine on which conditions are coverable.
+- **Above 8 inputs (66 expressions, up to 76 conditions):** every condition must end covered or proven impossible, and every pair must pass the direct definition check (`is_masking_pair` / `is_unique_cause_masking_pair` / `is_unique_cause_pair`). Those checks are themselves validated against the published pairs in `PairSearchEngine.test_published_pairs_pass_direct_check` and `S2UniqueCauseMasking.test_published_pairs_direct_check`.
 
 Both checks run for the three forms.
 
@@ -140,7 +174,6 @@ Decide whether to count this category as qualification evidence.
 ## Excluded from the sources (not expressible in the tool's grammar)
 
 - **S1 §3.1.5 comparator, §3.1.6 if-then-else, §3.1.7 loops, §3.7 bit-wise operations:** not Boolean decisions of this grammar.
-- **S1 §3.6 and S2 Fig. 7, short-circuit forms (`or else`, `and then`):** the tool evaluates `and`/`or` (also written `&&` / `||`) as Boolean operators with both sides, as S2 Fig. 6 and S1's gates do.
 - **S1 Exercise 3.5, reset-overrides-set latch:** the output feeds back into the decision.
 - **S2 Appendix B, weakly coupled relational conditions:** the tool treats conditions as independent Boolean inputs.
 - **S2 §7.2, Table 36:** the context-dependent version of Table 35 removes infeasible combinations of weakly coupled conditions, which the tool doesn't model.
@@ -151,5 +184,7 @@ Decide whether to count this category as qualification evidence.
 - **No published formal definition of unique-cause + masking:** S2 §3.2.2 defines it in words. The tool uses the n-cube statement of §5.1 and §7.1 (edge transitions), which reproduces every pair of Tables 32-35 except the misprinted one. The original suggestion (S2's reference 4, Chilenski and Miller, 1994) was not available.
 - **The exact engine's minimal-set search stops after 2 s:** when it stops, the set is valid but "not proven minimal", and its size can depend on the machine's speed.
 - **The pair-search engine (more than `--max-exact` inputs, default 10) doesn't minimise:** in masking mode its sets are well above the S2 Theorem 4 bound (76 conditions: 78 tests, bound 18). Its job is completeness: every condition is covered, proven impossible, or reported UNKNOWN if its search budget is exceeded. It is never dropped silently.
-- **`&&`, `||` and `!` are Boolean and / or / not:** both operands are always part of the decision, and `!` binds as in C. The short-circuit forms (`and then`, `or else`, S2 Fig. 5 not-executed values) are not supported.
+- **`&&`, `||` and `!` are Boolean and / or / not by default:** `and then` / `or else` are always short-circuit forms, and `--short-circuit` makes every and / or one, as `&&` / `||` are in C. Choosing the right evaluation for the code under test is the user's responsibility.
+- **Short-circuit forms with unique-cause + masking:** S2 defines unique-cause with Not-Executed values (§3.1.2) but gives unique-cause + masking only in words (§3.2.2). The tool applies the same reading to the influence tree: every changed condition must be an occurrence of k's input. Without short-circuit forms this is exactly the edge rule of §5.1 and §7.1; with them, Figure 29 (which includes the 69 short-circuit expressions) is reproduced exactly.
+- **Lower bound with short-circuit forms:** only ⌈2√M⌉ is used (the N + 1 and V + 1 arguments assume n-cube edges, and pairs with short-circuit forms may change inputs that are not evaluated). "Proven minimal" then relies on the search finishing.
 - **The suite tests the tool in its environment:** the Python version is part of the tool's configuration.

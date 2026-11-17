@@ -1,5 +1,5 @@
 # Test scenario template, used with:
-#     python main.py "Out = (a and b) or c" --mcdc -gen_scen input/test_setup.toml
+#     python main.py "Out = (a and b) or c" --mcdc -gen_scen input/test_setup_cpp.toml
 #
 # Texts are written between ''' and ''': everything inside is kept exactly
 # ({, }, ", %, \ need no escaping). A line break right after the opening '''
@@ -29,6 +29,8 @@ FAMILY = "30"                            # added to the basename for tracking
 STARTING_TEST_NUMBER = 1                 # e.g. 25 to append to an existing scenario
 TRUE = "TRUE"                            # how True / False are written, e.g. "1" / "0"
 FALSE = "FALSE"
+# NOT_EVALUATED = "0"    # input a test doesn't evaluate (short-circuit forms, shown X);
+                         # default: the FALSE text
 # Written in the project's "output" folder (or the folder given with --output-dir);
 # an absolute path is used as is.
 OUTPUT_FILENAME = "Test_scenario_${CODE_UNDER_TEST}_${FAMILY}.cpp"
