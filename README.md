@@ -9,6 +9,16 @@ Command-line tool that takes a Boolean expression and gives the test cases neede
 
 The MC/DC definitions come from the FAA and NASA reports used in certification. [docs/MCDC_IMPLEMENTATION.md](docs/MCDC_IMPLEMENTATION.md) describes how they are implemented, and [tests/SOURCES.md](tests/SOURCES.md) traces the qualification test suite to those reports. [docs/IEC_61508_ADEQUACY.md](docs/IEC_61508_ADEQUACY.md) maps the tool to the support-tool requirements of IEC 61508-3.
 
+## Why?
+
+I wanted to implement a way to automatically generate tests against a known boolean equation that could be found in a specification document.
+
+Open source software / Free software producing MC/DC analysis and tests are either hard to use, or not qualified against IEC / DO standards.
+This is the end goal of this tool.  
+
+I made this tool with the help of the available free documentation, and ressources I own (not listed here), and code review / doc / improvements with Claude Opus 5.5 Extra.
+
+
 ## Requirements
 
 - Python 3.11 or later (tested with 3.12.4).
@@ -75,6 +85,8 @@ The expression is one quoted argument, `"Output = <expression>"`. `Output` is th
 | equivalence (xnor) | `==` |
 | constants | `True`, `False` |
 | grouping | `( )` |
+
+Note: French spellings are added for my personnal case.
 
 - **Variable names:** letters, digits and `_`, not starting with a digit. `et`, `ou` and `non` are keywords in any case, so they can't be variable names.
 - **Mixing spellings:** allowed. `(a ou b) && !c` is valid.
@@ -243,3 +255,16 @@ python tests/run_validation.py
 ```
 
 It writes `output/validation_record_<version>_<date>-<time>.md`; see [docs/IEC_61508_ADEQUACY.md](docs/IEC_61508_ADEQUACY.md).
+
+
+
+## Disclaimer
+
+Keep in mind that this is not a officially qualified tool (yet?). This could be costly and I'm simply helping building a tool  
+
+## Progress / TODO
+
+- Add a paragraph for the python example i provided.
+- Buy the remaining IEC files.
+- Produce a thourough analysis of DO178/330 adequacy.  
+- More to come !
