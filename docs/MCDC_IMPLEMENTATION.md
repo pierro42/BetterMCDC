@@ -4,6 +4,8 @@ This document describes how the tool computes MC/DC test sets: the definitions i
 
 It does not qualify the tool by itself. The qualification level, the Tool Operational Requirements (TOR) and the acceptance of this evidence are decided in your plans with your certification authority.
 
+For IEC 61508, [IEC_61508_ADEQUACY.md](IEC_61508_ADEQUACY.md) maps the tool and this evidence to the support-tool requirements of IEC 61508-3:2010.
+
 ## 1. Purpose and scope
 
 **Input:** one decision, written as a Boolean expression of named Boolean inputs.
@@ -45,6 +47,8 @@ Retrieval URLs and dates are in [tests/SOURCES.md](../tests/SOURCES.md).
 | `mcdc/pair_search.py` | pair search for large expressions | §11 |
 | `mcdc/analysis.py` | engine choice | §12 |
 | `mcdc/report.py` | text / CSV output | §13 |
+| `mcdc/scenario.py` | test scenario file from a template | [SCENARIO_GENERATION.md](SCENARIO_GENERATION.md) |
+| `mcdc/version.py` | tool version | — |
 | `main.py` | command line | — |
 
 **The core definitions:** `tree_xor` and `independence` in `mcdc/tree.py`, about 25 lines; `is_masking_pair`, `is_unique_cause_pair` and `is_unique_cause_masking_pair` apply them to two test vectors (`PAIR_CHECK` maps each form to its function). They are the direct transcription of S2's definitions:
@@ -363,7 +367,24 @@ python -m unittest discover -s tests -v
 | Pair-search engine | `PairSearchEngine.*` | same coverable / impossible conclusions as the exact engine on every published case, in the three forms; published pairs pass the direct checks |
 | Engine cross-check | `AppendixCCrossCheck.*` | **not a published oracle**: both engines agree up to 8 inputs; above (up to 76 conditions), every condition ends covered or impossible with valid pairs; three forms |
 
-The last run was on 2026-11-17, with Python 3.12.4 on Windows 11: 63 tests (47 qualification, 16 scenario generation), all passed, in under a minute.
+The last run was on 2026-11-17, with Python 3.12.4 on Windows 11: 67 tests (47 qualification, 18 scenario generation and tool version, 2 TOR traceability), all passed, in under a minute.
+
+**Validation record:** to keep evidence of a run, use
+
+```bash
+python tests/run_validation.py
+```
+
+It runs the same suite and writes `output/validation_record_<version>_<date>-<time>.md` with the items of IEC 61508-3 7.4.4.7 a) to g):
+- the date and time;
+- the version and digest of each document of this manual;
+- the tool version, the SHA-256 of the tool files and the git commit;
+- each TOR of §16 with the result of its tests;
+- the Python version and the machine;
+- each test with its result;
+- the discrepancies.
+
+Its exit status is 0 only if every test passed and every test named in §16 exists (`tests/test_traceability.py` checks the latter too). Keep the records under configuration management.
 
 **Inconsistencies in the source**, detailed in [tests/SOURCES.md](../tests/SOURCES.md):
 - four Appendix C entries contradict themselves and are excluded (C0604, C0793, C0794, C0839);
@@ -390,6 +411,7 @@ One mutation is not caught: keeping the N + 1 bound with short-circuit forms. No
 7. **2 s search limit:** it is machine-dependent. When it stops the search, the set is valid but "not proven minimal".
 8. **Pair-search sets are not minimised:** above `--max-exact` inputs (§11), and a condition can be `UNKNOWN` if its search exceeds the budget.
 9. **Python version:** it is part of the configuration (§3). Rerun the suite after any change of Python version or of the tool.
+10. **Tool version:** `mcdc/version.py` holds the version. Change it with every change of `main.py` or `mcdc/`, and produce a new validation record (§14). The SHA-256 in the record identifies the tool files that were validated.
 
 ## 16. Proposed tool operational requirements
 
@@ -409,3 +431,5 @@ A starting point for your TOR, with the code and tests that cover each requireme
 | TOR-10 | The tool shall identify unique-cause + masking independence pairs as defined in S2 §3.2.2, stated on the n-cube in §5.1 and §7.1 (edge transition and graph-coloring pair). | `tree.is_unique_cause_masking_pair`, `exact.independence_pairs` | `S2UniqueCauseMasking.*` |
 | TOR-11 | The tool shall evaluate `and then` / `or else` (and every and / or with `--short-circuit`) as short-circuit forms (S2 glossary), apply the definitions of TOR-04, TOR-05 and TOR-10 to the influence tree of S2 §3.1.2 with tree_xor (Figure 5), and show each input that a test doesn't evaluate as X. | `decision.py`, `tree.node_executed`, `tree.tree_xor`, `tree.independence`, `tree.canonical` | `ShortCircuit.*`, `S2AppendixC.test_response_profiles`, `S2Figures28To30.*` |
 | TOR-12 | For the decisions up to the exact-engine limit, the tool shall give a test set of minimal size. | `exact.minimal_mcdc_set` | `S2Figures28To30.test_figures_28_29_30`, `S1BuildingBlocks.*`, `S2MinimumNumberOfTests.test_minimal_sets_by_exhaustive_search` |
+| TOR-13 | The tool shall write a scenario file from a template as described in [SCENARIO_GENERATION.md](SCENARIO_GENERATION.md): the texts in the documented order, one input text per input, the values written with the TRUE / FALSE / NOT_EVALUATED texts, the expected output of each test case; and reject a template with an unknown key, an unknown or out-of-scope placeholder or an invalid `$`. | `scenario.py`, `main.py` | `ScenarioText.*`, `TemplateErrors.*`, `CommandLine.test_gen_scen_writes_the_file`, `CommandLine.test_template_error_stops_before_writing` |
+| TOR-14 | The tool shall give its version (`--version`), and write the version and the command line into the scenario where the template asks for them (`${tool_version}`, `${tool_command}`). | `version.py`, `main.py`, `scenario.py` | `CommandLine.test_version_and_command_recorded`, `ScenarioText.test_tool_version_and_command`, `TemplateErrors.test_placeholder_out_of_scope` |

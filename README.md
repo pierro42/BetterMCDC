@@ -7,7 +7,7 @@ Command-line tool that takes a Boolean expression and gives the test cases neede
 - **Repeated variables:** expressions where a variable appears more than once, such as `(a and b) or (not c and a)`, are handled.
 - **Test scenario file:** optionally, the test cases written as a scenario file (C++, or any other text format) through a user template. See [docs/SCENARIO_GENERATION.md](docs/SCENARIO_GENERATION.md).
 
-The MC/DC definitions come from the FAA and NASA reports used in certification. [docs/MCDC_IMPLEMENTATION.md](docs/MCDC_IMPLEMENTATION.md) describes how they are implemented, and [tests/SOURCES.md](tests/SOURCES.md) traces the qualification test suite to those reports.
+The MC/DC definitions come from the FAA and NASA reports used in certification. [docs/MCDC_IMPLEMENTATION.md](docs/MCDC_IMPLEMENTATION.md) describes how they are implemented, and [tests/SOURCES.md](tests/SOURCES.md) traces the qualification test suite to those reports. [docs/IEC_61508_ADEQUACY.md](docs/IEC_61508_ADEQUACY.md) maps the tool to the support-tool requirements of IEC 61508-3.
 
 ## Requirements
 
@@ -106,6 +106,7 @@ MC/DC is about *conditions*: each occurrence of a variable in the expression is 
 | `--max-exact N` | number of inputs up to which the whole truth table is analysed (default 10); see [Large expressions](#large-expressions) |
 | `-gen_scen TEMPLATE` (or `--gen-scen`) | also write a test scenario file; see [docs/SCENARIO_GENERATION.md](docs/SCENARIO_GENERATION.md) |
 | `--output-dir DIR` | folder for the scenario file (default: `output/` next to `main.py`) |
+| `--version` | print the tool version |
 
 ## Reading the MC/DC summary
 
@@ -213,12 +214,13 @@ mcdc/                      the tool
   analysis.py              engine choice
   report.py                text / CSV output
   scenario.py              test scenario generation
+  version.py               tool version
 input/test_setup_cpp.toml  example scenario template (C++)
 input/test_setup_python.toml  example scenario template (Python)
 examples/                  example code under test
-output/                    generated scenario files
+output/                    generated scenario files and validation records
 tests/                     qualification test suite (see tests/SOURCES.md)
-docs/                      implementation and scenario documentation
+docs/                      implementation, scenario and IEC 61508 documentation
 ressources/                reference documents (PDF)
 ```
 
@@ -231,4 +233,13 @@ python -m unittest discover -s tests -v
 ```
 
 - **`tests/test_qualification.py`:** expected results transcribed from published FAA/NASA reports. [tests/SOURCES.md](tests/SOURCES.md) lists the source of each test.
-- **`tests/test_scenario.py`:** scenario generation and command line.
+- **`tests/test_scenario.py`:** scenario generation, command line and tool version.
+- **`tests/test_traceability.py`:** every test named by the tool operational requirements exists.
+
+To keep a validation record of a run (IEC 61508-3 7.4.4.7):
+
+```bash
+python tests/run_validation.py
+```
+
+It writes `output/validation_record_<version>_<date>-<time>.md`; see [docs/IEC_61508_ADEQUACY.md](docs/IEC_61508_ADEQUACY.md).

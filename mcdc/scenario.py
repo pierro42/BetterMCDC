@@ -11,6 +11,8 @@ The template has three tables:
                TEST_CASE_OUTPUT_CHECK, TEST_CASE_END, TEST_EPILOGUE
 
 Placeholders are ${name} (Python string.Template); $$ is a literal $.
+${tool_version} and ${tool_command} record the tool version and the
+command line in the scenario (IEC 61508-3 7.4.4.15).
 The scenario is written in this order:
 
   TEST_PREAMBLE
@@ -29,9 +31,11 @@ import tomllib
 from typing import Dict, NamedTuple
 
 from .tree import executed_inputs
+from .version import __version__
 
 # Placeholders the tool provides, and where they can be used
-_GLOBAL = {"expression", "output_name"}
+_GLOBAL = {"expression", "output_name", "tool_version", "tool_command"}
+_FILENAME = _GLOBAL - {"tool_command"}      # quotes and spaces: not for a file name
 _PER_TEST = _GLOBAL | {"test_number", "row", "output_value", "output_inverse"}
 _INPUT = _PER_TEST | {"input_name", "input_value"}
 FORMAT_KEYS = {
@@ -129,7 +133,7 @@ def load_template(path):
         raise ValueError("[settings] OUTPUT_FILENAME is missing")
     allowed = set(variables)
     filename = _compile(_text(settings["OUTPUT_FILENAME"], "[settings] OUTPUT_FILENAME"),
-                        "[settings] OUTPUT_FILENAME", allowed | _GLOBAL)
+                        "[settings] OUTPUT_FILENAME", allowed | _FILENAME)
 
     unknown = [k for k in texts if k not in FORMAT_KEYS]
     if unknown:
@@ -148,13 +152,15 @@ def _expression_text(expression):
     return " ".join(expression.splitlines()).strip()
 
 
-def render_scenario(template, decision, tests, expression):
+def render_scenario(template, decision, tests, expression, command=""):
     """Scenario text for `tests`, a list of (row, inputs, result) as given
     to print_table (row is 0-based; ${row} is the 1-based '#' of the tables).
-    `expression` is the expression as the user typed it."""
+    `expression` is the expression as the user typed it, `command` the
+    command line that produced the scenario (${tool_command})."""
     value = lambda v: template.true if v else template.false
     common = dict(template.variables, expression=_expression_text(expression),
-                  output_name=decision.output)
+                  output_name=decision.output, tool_version=__version__,
+                  tool_command=command)
     out = [template.texts["TEST_PREAMBLE"].substitute(common)]
     for n, (row, inputs, result) in enumerate(tests):
         case = dict(common, test_number=str(template.start + n), row=str(row + 1),
@@ -175,4 +181,4 @@ def render_scenario(template, decision, tests, expression):
 def output_filename(template, decision, expression):
     """OUTPUT_FILENAME with its placeholders replaced."""
     return template.filename.substitute(template.variables, expression=_expression_text(expression),
-                                        output_name=decision.output)
+                                        output_name=decision.output, tool_version=__version__)

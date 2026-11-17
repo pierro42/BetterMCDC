@@ -159,6 +159,24 @@ class ScenarioText(TemplateFiles):
                 template = self.load(base.format(extra=extra))
                 self.assertEqual(mcdc.render_scenario(template, decision, tests, text), expected)
 
+    def test_tool_version_and_command(self):
+        """${tool_version} is the tool version and ${tool_command} the
+        command line given to render_scenario, in every text; OUTPUT_FILENAME
+        can use ${tool_version} (IEC 61508-3 7.4.4.15: tool version and use
+        recorded with each generated item)."""
+        decision = mcdc.parse_decision(AND3)
+        template = self.load("[settings]\nOUTPUT_FILENAME = 'v${tool_version}.cpp'\n"
+                             "[format]\nTEST_PREAMBLE = '${tool_version}|${tool_command}|'\n"
+                             "TEST_CASE_END = '${tool_version} '\n")
+        tests = [(7, [True, True, True], True)]
+        version = mcdc.__version__
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+        self.assertEqual(mcdc.render_scenario(template, decision, tests, AND3, "main.py x"),
+                         f"{version}|main.py x|{version} ")
+        self.assertEqual(mcdc.render_scenario(template, decision, tests, AND3),
+                         f"{version}||{version} ")
+        self.assertEqual(mcdc.output_filename(template, decision, AND3), f"v{version}.cpp")
+
 
 class TemplateErrors(TemplateFiles):
     """A wrong template is rejected when it is loaded, with the key named."""
@@ -178,6 +196,8 @@ class TemplateErrors(TemplateFiles):
                    r"TEST_PREAMBLE: \$\{input_name\} can only be used in TEST_CASE_INPUT_SET")
         self.check("[settings]\nOUTPUT_FILENAME = '${test_number}.cpp'\n",
                    r"OUTPUT_FILENAME: \$\{test_number\} can only be used in")
+        self.check("[settings]\nOUTPUT_FILENAME = '${tool_command}.cpp'\n",
+                   r"OUTPUT_FILENAME: \$\{tool_command\} can only be used in")
 
     def test_invalid_dollar(self):
         self.check(self.BASE + "[format]\nTEST_CASE_END = '''}\nprice $5'''\n",
@@ -216,6 +236,22 @@ class CommandLine(TemplateFiles):
                           result.stdout)
             written = (out / "Test_Uut_30_Z.cpp").read_text(encoding="utf-8")
             self.assertEqual(written, EXPECTED_AND3)
+
+    def test_version_and_command_recorded(self):
+        """--version prints the tool version; the scenario records the
+        version and the command line as typed (IEC 61508-3 7.4.4.15)."""
+        result = self.run_main("--version", expression=None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), f"main.py {mcdc.__version__}")
+        template = self.write("[settings]\nOUTPUT_FILENAME = 'rec.txt'\n"
+                              "[format]\nTEST_PREAMBLE = '${tool_version} ${tool_command}'\n")
+        out = Path(self.dir.name) / "out"
+        result = self.run_main("--mcdc", "-gen_scen", str(template), "--output-dir", str(out))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        quote = lambda path: f'"{path}"' if " " in str(path) else str(path)
+        self.assertEqual((out / "rec.txt").read_text(encoding="utf-8"),
+                         f'{mcdc.__version__} main.py "{AND3}" --mcdc -gen_scen '
+                         f'{quote(template)} --output-dir {quote(out)}')
 
     def test_default_output_folder(self):
         """Without --output-dir the scenario goes to the 'output' folder next
