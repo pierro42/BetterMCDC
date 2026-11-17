@@ -62,6 +62,13 @@ def print_mcdc_summary(decision, analysis, mode):
             if coupled and mode == "unique-cause" and not decision.short_circuit:
                 reason = (f"coupled with {', '.join(coupled)}: they always change "
                           f"together, use --mcdc unique-cause+masking or masking")
+            elif coupled and mode == "unique-cause":
+                # with short-circuit forms a repeated condition can have a
+                # unique-cause pair, but only where its other occurrences are
+                # not evaluated in one of the two tests
+                reason = (f"coupled with {', '.join(coupled)}: no pair where it is the "
+                          f"only condition that changes, see --mcdc unique-cause+masking "
+                          f"or masking")
             elif coupled and mode == "unique-cause+masking":
                 name = decision.names[decision.variable[k]]
                 reason = (f"coupled with {', '.join(coupled)}: no pair where only "

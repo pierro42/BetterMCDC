@@ -116,7 +116,7 @@ MC/DC is about *conditions*: each occurrence of a variable in the expression is 
   - `masked:` lists the other conditions that also change within that pair; their effect is blocked by another operator. In unique-cause + masking, these can only be other occurrences of the same variable.
 - **`NONE`:** no pair exists.
   - `redundant`: the condition never affects the output on its own, which is often a sign of a design error.
-  - `coupled`: in unique-cause MC/DC a repeated variable can never change alone; use unique-cause + masking or masking. In unique-cause + masking, no pair exists where only that variable changes; masking MC/DC may still cover it.
+  - `coupled`: in unique-cause MC/DC a repeated variable can never change alone; use unique-cause + masking or masking. With short-circuit forms it can, when its other occurrences aren't evaluated in one of the two tests; `coupled` then means no such pair exists. In unique-cause + masking, no pair exists where only that variable changes; masking MC/DC may still cover it.
 - **`Minimum`:**
   - `proven minimal` means no smaller set exists.
   - `not proven minimal` means the set is valid but may not be the smallest; the published lower bound is shown.

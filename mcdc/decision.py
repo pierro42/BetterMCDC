@@ -47,7 +47,8 @@ _TO_FRENCH = {v: k for k, v in _FRENCH.items()}
 # than every other operator (!a == b is (!a) == b)
 _SYMBOLS = {"&&": " and ", "||": " or ", "!": "(not "}
 _TO_SYMBOLS = {"and": "&&", "or": "||", "not": "!"}
-_BEFORE_NOT = {"(", "=", "==", "!=", "!", "&", "|", "and", "or", "not"}
+# tokens after which a "!" is a unary not ("then" / "else" end "and then" / "or else")
+_BEFORE_NOT = {"(", "=", "==", "!=", "!", "&", "|", "and", "or", "not", "then", "else"}
 
 
 def _operand_end(tokens, i):

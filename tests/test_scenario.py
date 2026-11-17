@@ -230,6 +230,22 @@ class CommandLine(TemplateFiles):
         self.assertEqual(target.read_text(encoding="utf-8"), "end")
         self.assertFalse((Path(self.dir.name) / name).exists())
 
+    def test_coupled_condition_message(self):
+        """A repeated condition without a unique-cause pair is reported as
+        coupled, never as redundant, when other forms can cover it, with or
+        without short-circuit forms. ([S2] Table 33 expression: masking
+        covers A (2nd occurrence) with (1, 5) and (3, 5).)"""
+        text = "F = (A and B) or (A and C)"
+        for extra, line in (((), "A#1 : NONE - coupled with A#2: they always change together"),
+                            (("--short-circuit",),
+                             "A#2 : NONE - coupled with A#1: no pair where it is the only "
+                             "condition that changes")):
+            with self.subTest(extra=extra):
+                result = self.run_main("--mcdc", "unique-cause", *extra, expression=text)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(line, result.stdout)
+                self.assertNotIn("redundant", result.stdout)
+
     def test_no_expression_prints_help(self):
         result = self.run_main(expression=None)
         self.assertEqual(result.returncode, 0, result.stderr)

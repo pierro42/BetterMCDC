@@ -936,7 +936,10 @@ class InputSyntax(unittest.TestCase):
         before any other operator: !a == b is (!a) == b."""
         for symbols, keywords in (("R = !a == b", "R = (not a) == b"),
                                   ("R = b != !c", "R = b != (not c)"),
-                                  ("R = !(a && b) || !!c", "R = (not (a and b)) or not (not c)")):
+                                  ("R = !(a && b) || !!c", "R = (not (a and b)) or not (not c)"),
+                                  # also right after the short-circuit forms
+                                  ("R = a and then !b", "R = a and then (not b)"),
+                                  ("R = a or else !(b && c)", "R = a or else (not (b and c))")):
             with self.subTest(text=symbols):
                 self.assertEqual(mcdc.parse_decision(symbols).nodes,
                                  mcdc.parse_decision(keywords).nodes)

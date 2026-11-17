@@ -363,7 +363,7 @@ python -m unittest discover -s tests -v
 | Pair-search engine | `PairSearchEngine.*` | same coverable / impossible conclusions as the exact engine on every published case, in the three forms; published pairs pass the direct checks |
 | Engine cross-check | `AppendixCCrossCheck.*` | **not a published oracle**: both engines agree up to 8 inputs; above (up to 76 conditions), every condition ends covered or impossible with valid pairs; three forms |
 
-The last run was on 2026-11-17, with Python 3.12.4 on Windows 11: 62 tests (47 qualification, 15 scenario generation), all passed, in under a minute.
+The last run was on 2026-11-17, with Python 3.12.4 on Windows 11: 63 tests (47 qualification, 16 scenario generation), all passed, in under a minute.
 
 **Inconsistencies in the source**, detailed in [tests/SOURCES.md](../tests/SOURCES.md):
 - four Appendix C entries contradict themselves and are excluded (C0604, C0793, C0794, C0839);

@@ -87,13 +87,13 @@ source of every expected result in the suite. They use the definitions the tool 
 | `ShortCircuit.test_same_definitions_without_short_circuit` | S2 §3.1.1, §5.1, §7.1 | **derived check**: without short-circuit forms, the influence-tree definitions give exactly the direct statements (only k changes; only k's input changes) on the suite and on Appendix C up to 5 inputs |
 | `ShortCircuit.test_short_circuit_option` | tool requirement (input language) | `--short-circuit` makes every and / or (et / ou / && / \|\|) a short-circuit form |
 | `InputSyntax.test_symbols_equal_keywords` | tool requirement (input language) | every case above written with `&&` / `\|\|` / `!` gives the same conditions, truth table and pairs as with `and` / `or` / `not` (and then / or else kept) |
-| `InputSyntax.test_not_binds_like_c` | tool requirement (input language) | `!` binds tighter than every other operator, as in C: `!a == b` is `(!a) == b` |
+| `InputSyntax.test_not_binds_like_c` | tool requirement (input language) | `!` binds tighter than every other operator, as in C: `!a == b` is `(!a) == b`; `!` is also accepted right after `and then` / `or else` |
 | `PairSearchEngine.*` | all the cases above | in each of the three forms, the pair-search engine reaches the same coverable/impossible conclusions, with valid pairs, and its pair for S2 §3.1.1 is one of the published pairs |
 | `AppendixCCrossCheck.*` | expressions of S2 App. C | **engine cross-check, not a published oracle**: see below |
 | `test_scenario.ScenarioText.test_mcdc_scenario` | tool requirement (scenario generation); vectors from S1 §3.1.1, Table 5 | the 3-input and set rendered with a template gives the exact expected text (section order, one line per input, numbering, `${row}`, inverse output, TRUE/FALSE texts, `{ } " % \ $$` literal) and file name |
 | `test_scenario.ScenarioText.*` (other) | tool requirement (scenario generation) | full truth table without `--mcdc`, defaults, `${expression}` as typed, `NOT_EVALUATED` for inputs a test doesn't evaluate (vectors from S1 Table 32) |
 | `test_scenario.TemplateErrors.*` | tool requirement (scenario generation) | a wrong template (unknown or out-of-scope placeholder, bad `$`, unknown key, bad value, not TOML) is rejected with the key named |
-| `test_scenario.CommandLine.*` | tool requirement (command line) | `-gen_scen` / `--gen-scen` write the file (default folder `output/`, or `--output-dir`); `--csv` output stays clean; a template error stops before anything is written; no expression → help |
+| `test_scenario.CommandLine.*` | tool requirement (command line) | `-gen_scen` / `--gen-scen` write the file (default folder `output/`, or `--output-dir`); `--csv` output stays clean; a template error stops before anything is written; no expression → help; a repeated condition without a unique-cause pair is reported as coupled, not redundant (with and without short-circuit forms) |
 
 ## S2 §7.1 data (unique-cause + masking)
 
