@@ -184,4 +184,4 @@ This is a proposal, to be taken into your safety planning.
 
 ## 9. Other standards
 
-- **DO-178C / DO-330 (airborne software):** not covered yet. The same approach applies: a matrix against the DO-330 objectives for the tool qualification level set by your plans, and the MC/DC definition of the DO-178C glossary. It needs the RTCA texts.
+- **DO-178C / DO-330 (airborne software):** see [DO178C_DO330_ADEQUACY.md](DO178C_DO330_ADEQUACY.md). It is preliminary, built from the public FAA documents; the clause-by-clause matrix against DO-330 needs the RTCA texts.

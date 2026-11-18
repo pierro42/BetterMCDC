@@ -36,7 +36,7 @@ from mcdc import __version__  # noqa: E402
 TOR_DOCUMENT = "docs/MCDC_IMPLEMENTATION.md"
 # the "tool product manual" of 7.4.4.7 b)
 MANUAL = ["README.md", TOR_DOCUMENT, "docs/SCENARIO_GENERATION.md",
-          "docs/IEC_61508_ADEQUACY.md", "tests/SOURCES.md"]
+          "docs/IEC_61508_ADEQUACY.md", "docs/DO178C_DO330_ADEQUACY.md", "tests/SOURCES.md"]
 # the files that make up the tool
 TOOL_FILES = ["main.py"] + sorted(p.relative_to(ROOT).as_posix()
                                   for p in (ROOT / "mcdc").glob("*.py"))

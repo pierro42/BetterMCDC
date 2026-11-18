@@ -12,9 +12,10 @@ python -m unittest discover -s tests -v
 |---|---|---|---|
 | S1 | NASA/TM-2001-210876, *A Practical Tutorial on Modified Condition/Decision Coverage*, K. J. Hayhurst, D. S. Veerhusen, J. J. Chilenski, L. K. Rierson, May 2001 | https://shemesh.larc.nasa.gov/fm/papers/Hayhurst-2001-tm210876-MCDC.pdf | 2026-11-15 |
 | S2 | DOT/FAA/AR-01/18, *An Investigation of Three Forms of the Modified Condition Decision Coverage (MCDC) Criterion*, J. J. Chilenski, April 2001 | https://rosap.ntl.bts.gov/view/dot/42764 | 2026-11-15 |
+| S3 | DOT/FAA/AR-06/54, *Software Verification Tools Assessment Study*, June 2007 (one statement, §4.3.2) | https://www.faa.gov/sites/faa.gov/files/aircraft/air_cert/design_approvals/air_software/AR-06-54_VerificationTools.pdf | 2026-11-18 |
 
 No standard (DO-178C, DO-330, IEC 61508, ISO 26262) publishes a test-data set. These two FAA/NASA reports are the
-source of every expected result in the suite. They use the definitions the tool implements:
+source of every expected result in the suite, with one statement of S3. They use the definitions the tool implements:
 - **Masking MC/DC:** graph coloring, S2 §3.1.2, which is also the gate analysis of S1 §3.2: the influence set is {k}.
 - **Unique-cause MC/DC:** S2 §3.1.1, §3.1.2 ("only ci has a True in the influence tree") and §3.2.1.
 - **Unique-cause + masking MC/DC:** S2 §3.2.2, stated on the n-cube in §5.1 and §7.1: an *edge* pair (only one input changes) that is a valid graph-coloring pair.
@@ -85,6 +86,7 @@ source of every expected result in the suite. They use the definitions the tool 
 | `ShortCircuit.test_example_7` | S1 §3.6, Example 7, Tables 29 and 31, p.43-44 | both test sets give MC/DC for A and then B and then C and then D; Table 29 also for the and gate |
 | `ShortCircuit.test_tables_32_and_33` | S1 §3.6, Tables 32-33, p.45 | the minimal sets of the 4-input and-then and or-else gates, X included, proven minimal; **derived**: these 5 tests are all the distinct tests of each gate |
 | `ShortCircuit.test_same_definitions_without_short_circuit` | S2 §3.1.1, §5.1, §7.1 | **derived check**: without short-circuit forms, the influence-tree definitions give exactly the direct statements (only k changes; only k's input changes) on the suite and on Appendix C up to 5 inputs |
+| `ShortCircuit.test_ar0654_section_4_3_2` | S3 §4.3.2, p.19-20 | (A and then B) or else C: minimum of 4 tests, proven, in the three forms, also without short-circuit forms; **derived**: the report's 3 tests (separate-decision reading of DO-248B DP #13) are not an MC/DC set |
 | `ShortCircuit.test_short_circuit_option` | tool requirement (input language) | `--short-circuit` makes every and / or (et / ou / && / \|\|) a short-circuit form |
 | `InputSyntax.test_symbols_equal_keywords` | tool requirement (input language) | every case above written with `&&` / `\|\|` / `!` gives the same conditions, truth table and pairs as with `and` / `or` / `not` (and then / or else kept) |
 | `InputSyntax.test_not_binds_like_c` | tool requirement (input language) | `!` binds tighter than every other operator, as in C: `!a == b` is `(!a) == b`; `!` is also accepted right after `and then` / `or else` |

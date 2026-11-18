@@ -7,7 +7,7 @@ Command-line tool that takes a Boolean expression and gives the test cases neede
 - **Repeated variables:** expressions where a variable appears more than once, such as `(a and b) or (not c and a)`, are handled.
 - **Test scenario file:** optionally, the test cases written as a scenario file (C++, or any other text format) through a user template. See [docs/SCENARIO_GENERATION.md](docs/SCENARIO_GENERATION.md).
 
-The MC/DC definitions come from the FAA and NASA reports used in certification. [docs/MCDC_IMPLEMENTATION.md](docs/MCDC_IMPLEMENTATION.md) describes how they are implemented, and [tests/SOURCES.md](tests/SOURCES.md) traces the qualification test suite to those reports. [docs/IEC_61508_ADEQUACY.md](docs/IEC_61508_ADEQUACY.md) maps the tool to the support-tool requirements of IEC 61508-3.
+The MC/DC definitions come from the FAA and NASA reports used in certification. [docs/MCDC_IMPLEMENTATION.md](docs/MCDC_IMPLEMENTATION.md) describes how they are implemented, and [tests/SOURCES.md](tests/SOURCES.md) traces the qualification test suite to those reports. [docs/IEC_61508_ADEQUACY.md](docs/IEC_61508_ADEQUACY.md) maps the tool to the support-tool requirements of IEC 61508-3, and [docs/DO178C_DO330_ADEQUACY.md](docs/DO178C_DO330_ADEQUACY.md) to DO-178C / DO-330 (preliminary: from the public FAA documents).
 
 ## Why?
 

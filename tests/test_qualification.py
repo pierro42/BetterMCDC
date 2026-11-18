@@ -10,6 +10,8 @@ documents; nothing is derived from the tool itself (see tests/SOURCES.md):
        Rierson, May 2001.
   [S2] DOT/FAA/AR-01/18, "An Investigation of Three Forms of the Modified
        Condition Decision Coverage (MCDC) Criterion", Chilenski, April 2001.
+  [S3] DOT/FAA/AR-06/54, "Software Verification Tools Assessment Study",
+       June 2007 (one statement, section 4.3.2).
 
 Test vectors are written as in the sources ("TFTF": first condition first)
 and row numbers are computed from them: first input = most significant bit,
@@ -755,6 +757,7 @@ class S2Figures28To30(unittest.TestCase):
 AND_THEN4 = case("Z = A and then B and then C and then D")
 OR_ELSE4 = case("Z = A or else B or else C or else D")
 S2_FIG7 = case("F = A or else (B and C)")
+AND_THEN_OR_ELSE = case("Z = (A and then B) or else C")    # [S3] 4.3.2
 
 
 def tests_x(texts):
@@ -857,6 +860,30 @@ class ShortCircuit(unittest.TestCase):
                 # differs from one of them in an X position)
                 rows = mcdc.truth_table(decision)
                 self.assertEqual(set(mcdc.test_rows(decision, rows)), tests_x(expected))
+
+    def test_ar0654_section_4_3_2(self):
+        """[S3] 4.3.2, p.19-20: for (A and then B) or else C, "A minimum of
+        four test cases are needed to achieve MCDC for this expression". The
+        three tests the report gives for the other reading (each
+        short-circuited condition as a separate decision, DO-248B DP #13)
+        are then not an MC/DC set. The report names no form, so the minimum
+        is checked in the three forms."""
+        texts = (AND_THEN_OR_ELSE, "Z = (A and B) or C")
+        for text in texts:
+            decision = mcdc.parse_decision(text, short_circuit=True)
+            for mode in mcdc.MODES:
+                with self.subTest(text=text, mode=mode):
+                    result = mcdc.analyse_mcdc(decision, mode)
+                    self.assertTrue(result.optimal)
+                    self.assertEqual(len(result.tests), 4)
+        # (A=F, B=?, C=F), (A=T, B=F, C=T), (A=T, B=T, C=?), with ? not
+        # evaluated, numbered as F (see Notation in SOURCES.md)
+        decision = mcdc.parse_decision(AND_THEN_OR_ELSE)
+        rows = mcdc.truth_table(decision)
+        for mode in mcdc.MODES:
+            with self.subTest(mode=mode, tests="the report's three tests"):
+                pairs = mcdc.independence_pairs(decision, rows, mode)
+                self.assertTrue(uncovered(pairs, ["FFF", "TFT", "TTF"]))
 
     def test_same_definitions_without_short_circuit(self):
         """The definitions are written on the influence tree ([S2] 3.1.2).

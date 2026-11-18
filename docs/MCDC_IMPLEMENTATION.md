@@ -4,7 +4,7 @@ This document describes how the tool computes MC/DC test sets: the definitions i
 
 It does not qualify the tool by itself. The qualification level, the Tool Operational Requirements (TOR) and the acceptance of this evidence are decided in your plans with your certification authority.
 
-For IEC 61508, [IEC_61508_ADEQUACY.md](IEC_61508_ADEQUACY.md) maps the tool and this evidence to the support-tool requirements of IEC 61508-3:2010.
+For IEC 61508, [IEC_61508_ADEQUACY.md](IEC_61508_ADEQUACY.md) maps the tool and this evidence to the support-tool requirements of IEC 61508-3:2010. For DO-178C / DO-330, [DO178C_DO330_ADEQUACY.md](DO178C_DO330_ADEQUACY.md) does the same from the public FAA documents (preliminary).
 
 ## 1. Purpose and scope
 
@@ -27,6 +27,7 @@ For IEC 61508, [IEC_61508_ADEQUACY.md](IEC_61508_ADEQUACY.md) maps the tool and 
 |---|---|---|
 | S1 | NASA/TM-2001-210876, *A Practical Tutorial on Modified Condition/Decision Coverage*, Hayhurst, Veerhusen, Chilenski, Rierson, May 2001 | gate building blocks, worked examples, exercises, short-circuit logic (§3.6) (expected results) |
 | S2 | DOT/FAA/AR-01/18, *An Investigation of Three Forms of the Modified Condition Decision Coverage (MCDC) Criterion*, Chilenski, April 2001 | definitions (glossary, §3.1.1, §3.1.2 with Figures 5 and 7, §3.2.1, §3.2.2, transition types §5.1), lower bounds (§5.1), minimal test sets of the airborne expressions (§6.1.1, Figures 28-30), independence tables (§7.1), airborne expressions (Appendix C) |
+| S3 | DOT/FAA/AR-06/54, *Software Verification Tools Assessment Study*, June 2007 | MC/DC forms as seen by the FAA (Appendix A), short-circuit operators (§4.2.5, §4.3.2), one minimum test count (§4.3.2) |
 | CAST-6 | Certification Authorities Software Team, *Rationale for Accepting Masking MC/DC in Certification Projects*, 2001 | acceptance of the masking form |
 
 Retrieval URLs and dates are in [tests/SOURCES.md](../tests/SOURCES.md).
@@ -362,12 +363,12 @@ python -m unittest discover -s tests -v
 | Lower bounds | `S2MinimumNumberOfTests.*` | no set below S2 Theorems 1 and 4; Theorem 2 not used; **derived**: true minimum by trying every subset (≤ 4 inputs) = the tool's minimum |
 | Truth tables | `S2AppendixC.*` | 878 real airborne expressions, 55 with short-circuit forms: truth table = published response profile, not-executed rows included |
 | Minimal test sets | `S2Figures28To30.*` | S2 Figures 28-30: for the three forms and 2 to 6 conditions, the occurrences of the 1112 airborne expressions per minimal set size, all 47 plotted values; S2's statements on them |
-| Short-circuit forms | `ShortCircuit.*` | S2 glossary, Figures 5 and 7; S1 Example 7, Tables 32-33; the definitions equal §3.1.1 and the edge rule without short-circuit forms; `--short-circuit` |
+| Short-circuit forms | `ShortCircuit.*` | S2 glossary, Figures 5 and 7; S1 Example 7, Tables 32-33; S3 §4.3.2 minimum of 4 tests; the definitions equal §3.1.1 and the edge rule without short-circuit forms; `--short-circuit` |
 | Input language | `InputSyntax.*` | `&&` / `\|\|` / `!` give the same results as `and` / `or` / `not`; `!` precedence |
 | Pair-search engine | `PairSearchEngine.*` | same coverable / impossible conclusions as the exact engine on every published case, in the three forms; published pairs pass the direct checks |
 | Engine cross-check | `AppendixCCrossCheck.*` | **not a published oracle**: both engines agree up to 8 inputs; above (up to 76 conditions), every condition ends covered or impossible with valid pairs; three forms |
 
-The last run was on 2026-11-17, with Python 3.12.4 on Windows 11: 67 tests (47 qualification, 18 scenario generation and tool version, 2 TOR traceability), all passed, in under a minute.
+The last run was on 2026-11-17, with Python 3.12.4 on Windows 11: 68 tests (48 qualification, 18 scenario generation and tool version, 2 TOR traceability), all passed, in under a minute.
 
 **Validation record:** to keep evidence of a run, use
 
@@ -404,7 +405,7 @@ One mutation is not caught: keeping the N + 1 bound with short-circuit forms. No
 
 1. **Independent inputs:** conditions are independent Boolean inputs. Relational conditions, and the weak coupling of S2 Appendix B, are not modelled.
 2. **Evaluation of and / or:** `&&`, `||`, `and`, `or` are Boolean (both operands evaluated) unless `--short-circuit` is given; `and then` / `or else` are always short-circuit forms. The user must choose what matches the code under test (S1 §3.6: in C, `&&` and `||` are short-circuit; compiler options can also change the evaluation).
-3. **Unsupported constructs:** comparators, bit-wise operations, latches and loops (S1 §3.1.5–3.1.7, §3.7, Exercise 3.5).
+3. **Unsupported constructs:** comparators, bit-wise operations, the conditional expression `c ? a : b` (S3 §4.2.5), latches and loops (S1 §3.1.5–3.1.7, §3.7, Exercise 3.5).
 4. **Unique-cause + masking has no published formula:** S2 §3.2.2 defines it in words. The tool uses the n-cube statement of S2 §5.1 and §7.1 (§8), read on the influence tree with short-circuit forms (§9). The original suggestion (S2's reference 4, Chilenski and Miller, 1994) was not available.
 5. **Lower bound with short-circuit forms:** only ⌈2√M⌉ (§9); a set is "proven minimal" when the search finishes.
 6. **No exact minimum published for large expressions:** S2's Figures 28-30 give it for the Appendix C expressions up to 6 conditions (reproduced); above, only S2's lower bounds. "Proven minimal" means the exhaustive search finished or reached that bound.
