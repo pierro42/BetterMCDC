@@ -23,7 +23,7 @@ I made this tool with the help of the available free documentation, and ressourc
 
 ## Requirements
 
-- Python 3.11 or later (tested with 3.12.4).
+- Python 3.11 or later (tested on 3.11 to 3.15 by the continuous integration).
 - Standard library only: nothing to install.
 
 ## Quick start
@@ -269,11 +269,11 @@ It writes `output/validation_record_<version>_<date>-<time>.md`; see [docs/IEC_6
 - **Release:** pushing a tag `vX.Y.Z` equal to the version in `mcdc/version.py` runs the same tests, then publishes a GitHub release with the validation record of every platform:
 
 ```bash
-git tag v1.0.0
+git tag v1.0.1
 ```
 
 ```bash
-git push origin v1.0.0
+git push origin v1.0.1
 ```
 
 To keep `main` tested, protect it in the repository settings (Settings > Branches): require a pull request and the "Tests" checks to pass before merging.

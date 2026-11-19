@@ -80,6 +80,10 @@ def _replace_words(text, replace):
     tokens = []
     try:
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            # Python 3.11 returns "!" as an ERRORTOKEN and the blank before
+            # it as another ERRORTOKEN; blanks are not words, so drop them
+            if tok.type == tokenize.ERRORTOKEN and not tok.string.strip():
+                continue
             tokens.append(tok)
     except (tokenize.TokenError, SyntaxError):
         pass                        # keep what was read, ast.parse reports the error
