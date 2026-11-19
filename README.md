@@ -1,5 +1,7 @@
 # MC/DC test case generator
 
+[![CI](https://github.com/pierro42/BetterMCDC/actions/workflows/ci.yml/badge.svg)](https://github.com/pierro42/BetterMCDC/actions/workflows/ci.yml)
+
 Command-line tool that takes a Boolean expression and gives the test cases needed to test it:
 
 - **Truth table:** the full truth table, with the variable names as column headers.
@@ -234,6 +236,7 @@ output/                    generated scenario files and validation records
 tests/                     qualification test suite (see tests/SOURCES.md)
 docs/                      implementation, scenario and IEC 61508 documentation
 ressources/                reference documents (PDF)
+.github/                   continuous integration (GitHub Actions)
 ```
 
 ## Tests
@@ -255,6 +258,25 @@ python tests/run_validation.py
 ```
 
 It writes `output/validation_record_<version>_<date>-<time>.md`; see [docs/IEC_61508_ADEQUACY.md](docs/IEC_61508_ADEQUACY.md).
+
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `tests/run_validation.py` on GitHub Actions:
+
+- **When:** on every pull request, every push to `main` or `dev`, and on demand (Actions tab, "Run workflow"). A newer push to the same branch cancels the older run.
+- **Where:** Linux, Windows and macOS with Python 3.11 and 3.15, plus Linux with Python 3.12, 3.13 and 3.14.
+- **Result:** each run's validation record is kept as a build artifact (30 days), and its result is shown on the run's summary page.
+- **Release:** pushing a tag `vX.Y.Z` equal to the version in `mcdc/version.py` runs the same tests, then publishes a GitHub release with the validation record of every platform:
+
+```bash
+git tag v1.0.0
+```
+
+```bash
+git push origin v1.0.0
+```
+
+To keep `main` tested, protect it in the repository settings (Settings > Branches): require a pull request and the "Tests" checks to pass before merging.
 
 
 

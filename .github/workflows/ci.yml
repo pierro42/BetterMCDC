@@ -1,0 +1,113 @@
+# Continuous integration of the MC/DC tool.
+#
+# - Every pull request, and every push to main or dev, runs the whole test
+#   suite through tests/run_validation.py on Linux, Windows and macOS, and on
+#   the oldest and newest supported Python versions. Each run keeps its
+#   validation record (IEC 61508-3:2010 7.4.4.7) as a build artifact.
+# - Pushing a tag vX.Y.Z (equal to mcdc/version.py) runs the same tests and,
+#   when they all pass, publishes a GitHub release with the validation records.
+#
+# The actions are pinned to full commit SHAs, so that the CI tools can't
+# change without a commit here (the comment gives the version).
+
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch or pull request cancels the older run.
+# Tag runs are never cancelled.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.15"]          # oldest supported, newest released
+        include:
+          - { os: ubuntu-latest, python: "3.12" }
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: ubuntu-latest, python: "3.14" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0    # the record gives the last commit of each manual document
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Check the tag against the tool version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version=$(python -c "import mcdc; print(mcdc.__version__)")
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} doesn't match mcdc/version.py (${version})"
+            exit 1
+          fi
+
+      - name: Run the test suite and write the validation record
+        run: python tests/run_validation.py --output-dir validation
+
+      - name: Show the validation record
+        if: always()
+        shell: bash
+        run: |
+          for record in validation/*.md; do
+            [ -f "$record" ] || continue
+            echo "## ${{ matrix.os }}, Python ${{ matrix.python }}" >> "$GITHUB_STEP_SUMMARY"
+            sed -n '/^\*\*Result/p;/^## e)/,/^## f)/p;/^## g)/,$p' "$record" | sed '/^## f)/d' >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Keep the validation record
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: validation-record-${{ matrix.os }}-py${{ matrix.python }}
+          path: validation/*.md
+          if-no-files-found: error
+          retention-days: ${{ startsWith(github.ref, 'refs/tags/') && 90 || 30 }}
+
+  release:
+    name: Release
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write     # to create the release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: validation-record-*
+          path: records
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd records
+          for dir in validation-record-*; do
+            for record in "$dir"/*.md; do
+              mv "$record" "${dir#validation-record-}_$(basename "$record")"
+            done
+          done
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
+            --title "MC/DC tool ${GITHUB_REF_NAME#v}" ./*.md

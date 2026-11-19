@@ -1,0 +1,10 @@
+# Proposes a pull request when a pinned GitHub action has a new version.
+# The tool itself uses only the Python standard library: nothing else to watch.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "CI"
