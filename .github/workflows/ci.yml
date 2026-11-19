@@ -4,8 +4,9 @@
 #   suite through tests/run_validation.py on Linux, Windows and macOS, and on
 #   the oldest and newest supported Python versions. Each run keeps its
 #   validation record (IEC 61508-3:2010 7.4.4.7) as a build artifact.
-# - Pushing a tag vX.Y.Z (equal to mcdc/version.py) runs the same tests and,
-#   when they all pass, publishes a GitHub release with the validation records.
+# - Pushing a tag vX.Y.Z (equal to mcdc/version.py) on a commit of main runs
+#   the same tests and, when they all pass, publishes a GitHub release with
+#   the validation records.
 #
 # The actions are pinned to full commit SHAs, so that the CI tools can't
 # change without a commit here (the comment gives the version).
@@ -19,11 +20,12 @@ on:
   pull_request:
   workflow_dispatch:
 
-# A newer push to the same branch or pull request cancels the older run.
-# Tag runs are never cancelled.
+# A newer push to a pull request cancels its older run. Every other run
+# (branch, tag, manual) has a group of its own, so it is never cancelled or
+# dropped: each commit of main and dev keeps its validation record.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -46,6 +48,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0    # the record gives the last commit of each manual document
+          persist-credentials: false   # the tests only read the local history
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -65,7 +68,7 @@ jobs:
         run: python tests/run_validation.py --output-dir validation
 
       - name: Show the validation record
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           for record in validation/*.md; do
@@ -75,7 +78,7 @@ jobs:
           done
 
       - name: Keep the validation record
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: validation-record-${{ matrix.os }}-py${{ matrix.python }}
@@ -91,8 +94,19 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write     # to create the release
+    # no checkout: gh works through the API, so no token is left on disk
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check that the tagged commit is on main
+        run: |
+          # "identical" or "behind": the commit is main's head or an ancestor of it
+          status=$(gh api "repos/${GH_REPO}/compare/main...${GITHUB_SHA}" --jq .status)
+          if [ "$status" != identical ] && [ "$status" != behind ]; then
+            echo "::error::${GITHUB_SHA} is not on main (compare status: ${status}); no release"
+            exit 1
+          fi
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -100,8 +114,6 @@ jobs:
           path: records
 
       - name: Publish the release
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           cd records
           for dir in validation-record-*; do
@@ -109,5 +121,10 @@ jobs:
               mv "$record" "${dir#validation-record-}_$(basename "$record")"
             done
           done
-          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
-            --title "MC/DC tool ${GITHUB_REF_NAME#v}" ./*.md
+          # a re-run after a partial failure completes the existing release
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" ./*.md --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
+              --title "MC/DC tool ${GITHUB_REF_NAME#v}" ./*.md
+          fi

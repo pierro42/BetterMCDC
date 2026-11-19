@@ -263,10 +263,10 @@ It writes `output/validation_record_<version>_<date>-<time>.md`; see [docs/IEC_6
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `tests/run_validation.py` on GitHub Actions:
 
-- **When:** on every pull request, every push to `main` or `dev`, and on demand (Actions tab, "Run workflow"). A newer push to the same branch cancels the older run.
+- **When:** on every pull request, every push to `main` or `dev`, and on demand (Actions tab, "Run workflow"). A newer push to a pull request cancels its older run; runs on `main`, `dev` and tags are never cancelled, so every commit keeps its validation record.
 - **Where:** Linux, Windows and macOS with Python 3.11 and 3.15, plus Linux with Python 3.12, 3.13 and 3.14.
 - **Result:** each run's validation record is kept as a build artifact (30 days), and its result is shown on the run's summary page.
-- **Release:** pushing a tag `vX.Y.Z` equal to the version in `mcdc/version.py` runs the same tests, then publishes a GitHub release with the validation record of every platform:
+- **Release:** pushing a tag `vX.Y.Z` on a commit of `main`, equal to the version in `mcdc/version.py`, runs the same tests, then publishes a GitHub release with the validation record of every platform:
 
 ```bash
 git tag v1.0.1
