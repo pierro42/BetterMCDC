@@ -12,7 +12,10 @@ Run from the project folder:
     python -m unittest discover -s tests -v
 """
 
+import json
+import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -222,6 +225,21 @@ class ScenarioText(TemplateFiles):
         self.assertEqual(mcdc.list_output_filename(template, decision, AND3),
                          "Test_Uut_30_Z_list.cpp")
 
+    def test_expression_in_file_name(self):
+        """In OUTPUT_FILENAME and LIST_OUTPUT_FILENAME, ${expression} gets _
+        for the characters a file name can't contain on Windows (|| and !=
+        of the expressions); the texts keep the expression as typed."""
+        text = "Out = (a || b) != c"
+        decision = mcdc.parse_decision(text)
+        template = self.load("[settings]\nOUTPUT_FILENAME = 'T ${expression}.txt'\n"
+                             "LIST_OUTPUT_FILENAME = 'L ${expression}.txt'\n"
+                             "[format]\nTEST_PREAMBLE = '${expression}'\n")
+        self.assertEqual(mcdc.output_filename(template, decision, text),
+                         "T Out = (a __ b) != c.txt")
+        self.assertEqual(mcdc.list_output_filename(template, decision, text),
+                         "L Out = (a __ b) != c.txt")
+        self.assertEqual(mcdc.render_scenario(template, decision, [], text), text)
+
     def test_no_test_list(self):
         """Without LIST_OUTPUT_FILENAME there is no test list."""
         decision = mcdc.parse_decision(AND3)
@@ -265,6 +283,8 @@ class TemplateErrors(TemplateFiles):
     def test_bad_values(self):
         self.check("[settings]\n", r"OUTPUT_FILENAME is missing")
         self.check(self.BASE + "STARTING_TEST_NUMBER = '1'\n", r"STARTING_TEST_NUMBER must be")
+        self.check(self.BASE + "STARTING_TEST_NUMBER = -1\n", r"STARTING_TEST_NUMBER must be")
+        self.assertEqual(self.load(self.BASE + "STARTING_TEST_NUMBER = 0\n").start, 0)
         self.check(self.BASE + "[variables]\nrow = 'x'\n", r"\[variables\] row: this name is")
         self.check(self.BASE + "[format]\nTEST_CASE_END = 3\n", r"TEST_CASE_END must be a text")
 
@@ -327,16 +347,59 @@ class CommandLine(TemplateFiles):
                          EXPECTED_AND3_LIST.replace("main.py x", command))
 
     def test_test_list_cannot_overwrite_the_scenario(self):
-        """A LIST_OUTPUT_FILENAME that names the scenario file is rejected
-        before the analysis, and nothing is written."""
-        template = self.write("[settings]\nOUTPUT_FILENAME = 'Z.cpp'\n"
-                              "LIST_OUTPUT_FILENAME = './${output_name}.cpp'\n")
+        """A LIST_OUTPUT_FILENAME that names the scenario file, also with
+        another case (the same file on Windows and macOS), or an empty file
+        name, is rejected before the analysis, and nothing is written."""
+        for names, message in ((("Z.cpp", "./${output_name}.cpp"),
+                                "the test list would overwrite the scenario"),
+                               (("Test_Z.cpp", "test_z.CPP"),
+                                "the test list would overwrite the scenario"),
+                               (("Z.cpp", ""), "LIST_OUTPUT_FILENAME gives an empty file name"),
+                               (("${output_name}.cpp", " "), "LIST_OUTPUT_FILENAME gives an empty"),
+                               (("", "l.cpp"), "OUTPUT_FILENAME gives an empty file name")):
+            with self.subTest(names=names):
+                template = self.write("[settings]\nOUTPUT_FILENAME = '%s'\n"
+                                      "LIST_OUTPUT_FILENAME = '%s'\n" % names)
+                out = Path(self.dir.name) / "out"
+                result = self.run_main("--mcdc", "-gen_scen", str(template),
+                                       "--output-dir", str(out))
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(message, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertFalse(out.exists())
+
+    def test_test_list_cannot_overwrite_the_scenario_through_a_link(self):
+        """Two names that are links to one file: the test list isn't
+        written over the scenario."""
         out = Path(self.dir.name) / "out"
+        out.mkdir()
+        (out / "Z.cpp").write_text("old", encoding="utf-8")
+        os.link(out / "Z.cpp", out / "L.cpp")
+        template = self.write("[settings]\nOUTPUT_FILENAME = 'Z.cpp'\n"
+                              "LIST_OUTPUT_FILENAME = 'L.cpp'\n"
+                              "[format]\nTEST_PREAMBLE = 'scenario'\n"
+                              "TEST_LIST_PREAMBLE = 'list'\n")
         result = self.run_main("--mcdc", "-gen_scen", str(template), "--output-dir", str(out))
         self.assertEqual(result.returncode, 2)
         self.assertIn("the test list would overwrite the scenario", result.stderr)
-        self.assertEqual(result.stdout, "")
-        self.assertFalse(out.exists())
+        self.assertEqual((out / "Z.cpp").read_text(encoding="utf-8"), "scenario")
+
+    def test_command_line_quoting(self):
+        """${tool_command} quotes the arguments so that the Windows command
+        line and POSIX shells read back the same arguments: a quote is \\",
+        and the backslashes before a quote or the closing quote are doubled."""
+        import main
+        args = ["Out = a", "C:\\my dir\\", 'x"y', 'a\\"b c', "plain", "", "it's"]
+        line = main.command_line(args)
+        self.assertEqual(line, r'main.py "Out = a" "C:\my dir\\" "x\"y" "a\\\"b c" plain "" '
+                               "\"it's\"")
+        self.assertEqual(shlex.split(line)[1:], args)
+        if sys.platform == "win32":
+            # read back by a child process, with the Windows command line rules
+            child = subprocess.run(f'"{sys.executable}" -c "import sys, json; '
+                                   f'print(json.dumps(sys.argv[1:]))" {line[len("main.py "):]}',
+                                   capture_output=True, text=True)
+            self.assertEqual(json.loads(child.stdout), args)
 
     def test_example_templates(self):
         """Every template of the input folder writes its files. In

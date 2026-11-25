@@ -95,7 +95,7 @@ Note: French spellings are added for my personnal case.
 - **Precedence:** as in Python: `not`, then `and`, then `or`. `==`, `!=` and xor bind tighter than `not`, so add parentheses when you mean `(not a) == b`. `a xor b xor c` is `(a xor b) xor c`.
 - **`!`:** binds tighter than every operator, as in C, so `!a == b` means `(!a) == b`.
 - **Evaluation:** by default, `and` / `&&` and `or` / `||` are Boolean: both operands are always evaluated. `and then` and `or else` are short-circuit forms: the right operand is evaluated only when the left one doesn't decide the result. To analyse C code, where `&&` and `||` are short-circuit, add `--short-circuit`: every and / or is then evaluated that way. See [Short-circuit evaluation](#short-circuit-evaluation).
-- **`then` and `else`:** right after `and` / `or` they are part of the operator, so they can't be variable names there.
+- **`then` and `else`:** they are part of the `and then` / `or else` operators, so they can't be variable names (`else` is a Python keyword already). Error columns refer to the text as you typed it.
 - **Chained comparisons:** `a != b != c` is rejected as ambiguous. Write `(a != b) != c`.
 - **xor with `==` or `!=`:** `a ^ b == c` is rejected: Python reads it `(a ^ b) == c` and C reads it `a ^ (b == c)`. Write the one you mean, with parentheses.
 

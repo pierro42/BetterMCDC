@@ -44,7 +44,8 @@ from .version import __version__
 
 # Placeholders the tool provides, and where they can be used
 _GLOBAL = {"expression", "output_name", "tool_version", "tool_command"}
-_FILENAME = _GLOBAL - {"tool_command"}      # quotes and spaces: not for a file name
+# ${tool_command} has quotes: not for a file name; ${expression} is made safe (_filename)
+_FILENAME = _GLOBAL - {"tool_command"}
 _PER_TEST = _GLOBAL | {"test_number", "row", "output_value", "output_inverse"}
 _INPUT = _PER_TEST | {"input_name", "input_value"}
 FORMAT_KEYS = {
@@ -137,8 +138,10 @@ def load_template(path):
         raise ValueError(f"[settings] unknown key(s): {', '.join(unknown)} "
                          f"(expected: {', '.join(SETTING_KEYS)})")
     start = settings.get("STARTING_TEST_NUMBER", 1)
-    if isinstance(start, bool) or not isinstance(start, int):
-        raise ValueError("[settings] STARTING_TEST_NUMBER must be a whole number, e.g. 1")
+    # not negative: ${test_number} is often part of a name, e.g. Test_..._${test_number}
+    if isinstance(start, bool) or not isinstance(start, int) or start < 0:
+        raise ValueError("[settings] STARTING_TEST_NUMBER must be a whole number, 0 or "
+                         "more, e.g. 1")
     true = _text(settings.get("TRUE", "1"), "[settings] TRUE")
     false = _text(settings.get("FALSE", "0"), "[settings] FALSE")
     # an input that a test doesn't evaluate (short-circuit forms): any value
@@ -230,8 +233,14 @@ def render_test_list(template, decision, tests, expression, command=""):
     return "".join(out)
 
 
+# characters that a file name can't contain on Windows (|| and ! appear in
+# expressions); ${expression} gets "_" instead of them in a file name
+_NOT_IN_FILENAME = str.maketrans({c: "_" for c in '\\/:*?"<>|'})
+
+
 def _filename(name, template, decision, expression):
-    return name.substitute(template.variables, expression=_expression_text(expression),
+    return name.substitute(template.variables,
+                           expression=_expression_text(expression).translate(_NOT_IN_FILENAME),
                            output_name=decision.output, tool_version=__version__)
 
 

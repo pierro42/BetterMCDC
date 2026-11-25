@@ -63,18 +63,33 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 
 def command_line(argv):
     """The command line as text, for ${tool_command}: arguments with spaces
-    or quotes are written between double quotes."""
+    or quotes are written between double quotes, with the rules of both the
+    Windows command line and POSIX shells: a quote is written \\", and the
+    backslashes just before a quote or the closing quote are doubled (so
+    "C:\\my dir\\" is written "C:\\my dir\\\\")."""
     def quote(arg):
         if arg and not any(c.isspace() or c in "\"'" for c in arg):
             return arg
-        return '"' + arg.replace('"', '\\"') + '"'
+        out, backslashes = [], 0
+        for c in arg:
+            if c == "\\":
+                backslashes += 1
+                continue
+            if c == '"':
+                out.append("\\" * (2 * backslashes + 1) + '"')
+            else:
+                out.append("\\" * backslashes + c)
+            backslashes = 0
+        out.append("\\" * (2 * backslashes))
+        return '"' + "".join(out) + '"'
     return " ".join(["main.py"] + [quote(arg) for arg in argv])
 
 
 def same_file(path1, path2):
-    """Do the two paths name the same file (case-insensitive on Windows)?
-    The files may not exist yet."""
-    name = lambda path: os.path.normcase(os.path.abspath(path))
+    """Can the two paths name the same file? The files may not exist yet.
+    Names that differ only by case count as the same file on every system,
+    since Windows and macOS (by default) don't tell them apart."""
+    name = lambda path: os.path.normcase(os.path.abspath(path)).casefold()
     return name(path1) == name(path2)
 
 
@@ -123,13 +138,18 @@ def main():
         except (OSError, ValueError) as e:
             parser.error(f"scenario template {args.gen_scen}: {e}")
         # a relative file name goes into the output folder, an absolute one is kept
-        path = args.output_dir / output_filename(template, decision, args.expression)
+        name = output_filename(template, decision, args.expression)
         list_name = list_output_filename(template, decision, args.expression)
+        for key, value in (("OUTPUT_FILENAME", name), ("LIST_OUTPUT_FILENAME", list_name)):
+            if value is not None and not value.strip():
+                parser.error(f"scenario template {args.gen_scen}: {key} gives an empty "
+                             f"file name")
+        path = args.output_dir / name
         list_path = args.output_dir / list_name if list_name is not None else None
         if list_path is not None and same_file(path, list_path):
             parser.error(f"scenario template {args.gen_scen}: LIST_OUTPUT_FILENAME gives the "
-                         f"same file as OUTPUT_FILENAME ({path}); the test list would "
-                         f"overwrite the scenario")
+                         f"same file as OUTPUT_FILENAME ({path}), or a name that differs "
+                         f"only by case; the test list would overwrite the scenario")
 
     if not args.mcdc:
         if n > args.max_exact:
@@ -158,6 +178,10 @@ def main():
         stream = sys.stderr if args.csv else sys.stdout     # so that the CSV output stays clean
         print(file=stream)
         for what, file_path, render in files:
+            # same file through a link (same_file only compares the names)
+            if file_path is not path and file_path.exists() and os.path.samefile(path, file_path):
+                parser.error(f"the test list {file_path} is the scenario file {path}; "
+                             f"the test list would overwrite the scenario")
             try:
                 file_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(file_path, "w", encoding="utf-8", newline="\n") as f:

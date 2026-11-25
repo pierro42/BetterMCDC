@@ -27,7 +27,7 @@ The file name comes from `OUTPUT_FILENAME` in the template. It is written to:
 - **the folder given with `--output-dir DIR`**;
 - **the path itself**, when `OUTPUT_FILENAME` is an absolute path.
 
-The test list, if the template has one, is written the same way from `LIST_OUTPUT_FILENAME`. Its name must differ from the scenario's.
+The test list, if the template has one, is written the same way from `LIST_OUTPUT_FILENAME`. Its name must differ from the scenario's, by more than the case of its letters (Windows and macOS don't tell `Z.cpp` and `z.cpp` apart).
 
 Missing folders are created. An existing file with the same name is overwritten. Files are written in UTF-8 with Unix line endings (LF).
 
@@ -66,11 +66,11 @@ Names are letters, digits and `_`, not starting with a digit. They can't reuse a
 
 | Key | Meaning | Default |
 |---|---|---|
-| `STARTING_TEST_NUMBER` | number of the first test case. Use e.g. `25` to append the scenario to an existing one that ends at test 24 | `1` |
+| `STARTING_TEST_NUMBER` | number of the first test case, 0 or more. Use e.g. `25` to append the scenario to an existing one that ends at test 24 | `1` |
 | `TRUE` | how a True value is written, e.g. `"TRUE"`, `"true"`, `"1"` | `"1"` |
 | `FALSE` | how a False value is written, e.g. `"FALSE"`, `"false"`, `"0"` | `"0"` |
 | `NOT_EVALUATED` | value written for an input that the test doesn't evaluate (short-circuit forms; `X` in the tool's tables). Any value works, since the input isn't evaluated | the `FALSE` text |
-| `OUTPUT_FILENAME` | name of the generated file; can use `[variables]`, `${expression}`, `${output_name}` and `${tool_version}` | required |
+| `OUTPUT_FILENAME` | name of the generated file; can use `[variables]`, `${expression}`, `${output_name}` and `${tool_version}`. In a file name, `${expression}` gets `_` for each character a Windows file name can't contain (`\ / : * ? " < > \|`), e.g. `a || b` gives `a __ b` | required |
 | `LIST_OUTPUT_FILENAME` | name of the test list file, with the same placeholders as `OUTPUT_FILENAME`. Without it, no test list is written | none: no test list |
 
 ### `[format]`: the texts
@@ -158,10 +158,10 @@ A placeholder is written `${name}` and replaced by its value.
 | Placeholder | Value | Can be used in |
 |---|---|---|
 | `${NAME}` from `[variables]` | as written in `[variables]` | everywhere |
-| `${expression}` | the expression as you passed it to `main.py`, on one line | everywhere |
+| `${expression}` | the expression as you passed it to `main.py`, on one line (in a file name, with `_` for the characters a file name can't contain) | everywhere |
 | `${output_name}` | the output name (`Out` in `Out = …`) | everywhere |
 | `${tool_version}` | the tool version, as `main.py --version` prints it | everywhere |
-| `${tool_command}` | the `main.py` command line that wrote the scenario, with the arguments that contain spaces or quotes between `"` | everywhere but `OUTPUT_FILENAME` and `LIST_OUTPUT_FILENAME` |
+| `${tool_command}` | the `main.py` command line that wrote the scenario. The arguments that contain spaces or quotes are written between `"`, with `\"` for a quote and doubled backslashes before a quote or the closing quote, so that the Windows command line and POSIX shells read back the same arguments | everywhere but `OUTPUT_FILENAME` and `LIST_OUTPUT_FILENAME` |
 | `${test_number}` | the test case number, from `STARTING_TEST_NUMBER` | all `TEST_CASE_*` texts, `TEST_LIST_CASE` |
 | `${row}` | the test case's `#` in the tool's truth table, to trace the scenario back to the table | all `TEST_CASE_*` texts, `TEST_LIST_CASE` |
 | `${output_value}` | the expected output value | all `TEST_CASE_*` texts, `TEST_LIST_CASE` |
@@ -207,9 +207,10 @@ main.py: error: scenario template input/bad.toml: [format] TEST_PREAMBLE: ${inpu
   - an unknown key in `[settings]` or `[format]` (e.g. `TEST_CASE_BEGIN`), or an unknown table;
   - `OUTPUT_FILENAME` missing;
   - a `TEST_LIST_*` text without `LIST_OUTPUT_FILENAME`;
-  - a `LIST_OUTPUT_FILENAME` that names the same file as `OUTPUT_FILENAME` (checked once the placeholders are replaced, before the analysis).
+  - a `LIST_OUTPUT_FILENAME` that names the same file as `OUTPUT_FILENAME`, or differs from it only by case (checked once the placeholders are replaced, before the analysis; checked again before writing, for two names linked to the same file);
+  - an empty file name, once the placeholders are replaced.
 - **Values:**
-  - `STARTING_TEST_NUMBER` not a whole number;
+  - `STARTING_TEST_NUMBER` not a whole number, or negative;
   - a `[variables]` name that is invalid or reuses a placeholder name of the tool;
   - a text that is not a string.
 - **File:** not valid TOML (the message gives the line and column), or can't be read.

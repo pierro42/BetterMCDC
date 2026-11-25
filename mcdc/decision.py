@@ -88,8 +88,9 @@ def _replace_words(text, replace):
     words; the operand of a replaced ! is closed with ")".
     `replace(word)` returns the new word, or None to keep it.
 
-    Returns (new_text, shifts) where shifts lists (column in new_text,
-    length change) for each replacement, to map error columns back."""
+    Returns (new_text, shifts) where shifts lists (new_start, new_end,
+    old_start, old_end) for each replacement, in order: its span in new_text
+    and in text, to map positions back (_typed_position)."""
     tokens = []
     try:
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
@@ -150,11 +151,27 @@ def _replace_words(text, replace):
         if new is None:
             continue
         out.append(text[last:start])
-        shifts.append((sum(len(s) for s in out), len(new) - (end - start)))
+        new_start = sum(len(s) for s in out)
+        shifts.append((new_start, new_start + len(new), start, end))
         out.append(new)
         last = end
     out.append(text[last:])
     return "".join(out), shifts
+
+
+def _typed_position(shifts, position, end=False):
+    """Index in the text as typed of `position` in the text returned by
+    _replace_words. The text between replacements is copied unchanged; a
+    position inside a replaced word gives the start of the word as typed, or
+    its end with end=True (for the end of a span)."""
+    typed = position
+    for new_start, new_end, old_start, old_end in shifts:
+        if position < new_start:
+            break
+        if position < new_end or (end and position == new_end):
+            return old_end if end else old_start
+        typed = old_end + (position - new_end)
+    return typed
 
 
 _MARK = "\x00"                     # can't be in a name: used for placeholders
@@ -240,7 +257,7 @@ def parse_decision(text, short_circuit=False):
         module = ast.parse(python_text, mode="exec")
     except SyntaxError as e:
         # report the column in the text as the user wrote it
-        column = (e.offset or 1) - sum(d for start, d in shifts if start < (e.offset or 1) - 1)
+        column = _typed_position(shifts, (e.offset or 1) - 1) + 1
         raise ValueError(f"syntax error at column {column}: {e.msg}") from None
     if len(module.body) != 1:
         raise ValueError("expected a single expression")
@@ -259,8 +276,8 @@ def parse_decision(text, short_circuit=False):
     parent = {id(child): node for node in ast.walk(expr) for child in ast.iter_child_nodes(node)}
     for node in ast.walk(expr):
         if not isinstance(node, _ALLOWED):
-            text = ast.unparse(node) or ast.unparse(parent.get(id(node), expr))
-            raise ValueError(f"unsupported syntax: '{text}' (allowed: {_ALLOWED_TEXT})")
+            quoted = ast.unparse(node) or ast.unparse(parent.get(id(node), expr))
+            raise ValueError(f"unsupported syntax: '{quoted}' (allowed: {_ALLOWED_TEXT})")
         if isinstance(node, ast.Constant) and not isinstance(node.value, bool):
             raise ValueError(f"only True and False are allowed as constants, "
                              f"not '{ast.unparse(node)}'")
@@ -272,8 +289,12 @@ def parse_decision(text, short_circuit=False):
             source = python_text.encode("utf-8")
             for operand in [node.left] + node.comparators:
                 if isinstance(operand, ast.BinOp) and not _parenthesized(source, operand):
-                    # Python reads a ^ b == c as (a ^ b) == c, C as a ^ (b == c)
-                    written = " ".join(ast.get_source_segment(python_text, node).split())
+                    # Python reads a ^ b == c as (a ^ b) == c, C as a ^ (b == c);
+                    # quote the comparison as typed (ast offsets are in UTF-8 bytes)
+                    chars = lambda offset: len(source[:offset].decode("utf-8"))
+                    start = _typed_position(shifts, chars(node.col_offset))
+                    end = _typed_position(shifts, chars(node.end_col_offset), end=True)
+                    written = " ".join(text[start:end].split())
                     raise ValueError(f"'{written}' mixes xor with == or != without "
                                      f"parentheses, which Python and C read differently: "
                                      f"write (a ^ b) == c or a ^ (b == c)")
@@ -286,6 +307,11 @@ def parse_decision(text, short_circuit=False):
     names = list(dict.fromkeys(node.id for node in occurrences))
     if output in names:
         raise ValueError(f"'{output}' is used both as output and as input")
+    if "then" in names:
+        # "and then" is an operator: a variable called then could be read as
+        # its second word (else is a Python keyword already)
+        raise ValueError("'then' can't be a variable name: it is part of the 'and then' "
+                         "operator")
 
     counts = {v: sum(node.id == v for node in occurrences) for v in names}
     seen = {}

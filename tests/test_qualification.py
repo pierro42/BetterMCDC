@@ -1023,6 +1023,34 @@ class InputSyntax(unittest.TestCase):
                                             re.escape(f"unsupported syntax: '{quoted}'")):
                     mcdc.parse_decision(text)
 
+    def test_errors_point_at_the_text_as_typed(self):
+        """Syntax error columns, and the comparison quoted when xor is mixed
+        with == or !=, refer to the text as typed, even where an operator
+        was replaced (&&, et, xor, ouexclusif, !) before parsing."""
+        for text, column in (("R = a && && b", 10), ("R = a ouexclusif ouexclusif b", 18),
+                             ("R = a xor xor b", 11), ("R = (a et b) ou ou c", 17),
+                             ("R = !a && (b", 11), ("R = a and then and b", 16),
+                             ("R = (a || b) &&", 16)):
+            with self.subTest(text=text):
+                with self.assertRaisesRegex(ValueError, f"^syntax error at column {column}:"):
+                    mcdc.parse_decision(text)
+        for text in ("R = a == b ouexclusif c", "R = a == !b ^ c", "R = (a et b) == c xor d",
+                     "R = !(a) != b ^ !c"):
+            with self.subTest(text=text):
+                with self.assertRaisesRegex(ValueError,
+                                            "^" + re.escape(f"'{text[4:]}' mixes xor")):
+                    mcdc.parse_decision(text)
+
+    def test_then_is_a_keyword(self):
+        """then is the second word of "and then": it can't be a variable
+        name, otherwise "a and (then)" would be shown, and read back, as an
+        and-then. Then (another case) is an ordinary name."""
+        for text in ("R = (a and b) && (then) || c", "R = then or a"):
+            with self.subTest(text=text):
+                with self.assertRaisesRegex(ValueError, "'then' can't be a variable name"):
+                    mcdc.parse_decision(text)
+        self.assertEqual(mcdc.parse_decision("R = a and Then").text, "a and Then")
+
     def test_display_keeps_meaning(self):
         """The decision text shown in the report is written with the
         spellings the user typed, and keeps the parentheses that the
