@@ -49,12 +49,13 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
-from mcdc import (DEFAULT_MAX_EXACT, MODES, __version__, analyse_mcdc, load_template,
-                  output_filename, parse_decision, print_mcdc_summary, print_table,
-                  render_scenario, test_rows, truth_table)
+from mcdc import (DEFAULT_MAX_EXACT, MODES, __version__, analyse_mcdc, list_output_filename,
+                  load_template, output_filename, parse_decision, print_mcdc_summary,
+                  print_table, render_scenario, render_test_list, test_rows, truth_table)
 
 EXAMPLE_EXPRESSION = "Outvar = (cond1 or cond2_mem) and (not cond1 and cond3)"
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
@@ -68,6 +69,13 @@ def command_line(argv):
             return arg
         return '"' + arg.replace('"', '\\"') + '"'
     return " ".join(["main.py"] + [quote(arg) for arg in argv])
+
+
+def same_file(path1, path2):
+    """Do the two paths name the same file (case-insensitive on Windows)?
+    The files may not exist yet."""
+    name = lambda path: os.path.normcase(os.path.abspath(path))
+    return name(path1) == name(path2)
 
 
 def main():
@@ -91,9 +99,10 @@ def main():
                              "and 'or else' are always short-circuit")
     parser.add_argument("-gen_scen", "--gen-scen", metavar="TEMPLATE",
                         help="also write a test scenario of the test cases, formatted "
-                             "by a TOML template file (e.g. input/test_setup_cpp.toml)")
+                             "by a TOML template file (e.g. input/test_setup_cpp.toml), "
+                             "and a test list file if the template has LIST_OUTPUT_FILENAME")
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR, metavar="DIR",
-                        help="folder where the scenario is written (default: the "
+                        help="folder where the scenario and the test list are written (default: the "
                              "'output' folder next to main.py, created if needed)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = parser.parse_args()
@@ -113,6 +122,14 @@ def main():
             template = load_template(args.gen_scen)
         except (OSError, ValueError) as e:
             parser.error(f"scenario template {args.gen_scen}: {e}")
+        # a relative file name goes into the output folder, an absolute one is kept
+        path = args.output_dir / output_filename(template, decision, args.expression)
+        list_name = list_output_filename(template, decision, args.expression)
+        list_path = args.output_dir / list_name if list_name is not None else None
+        if list_path is not None and same_file(path, list_path):
+            parser.error(f"scenario template {args.gen_scen}: LIST_OUTPUT_FILENAME gives the "
+                         f"same file as OUTPUT_FILENAME ({path}); the test list would "
+                         f"overwrite the scenario")
 
     if not args.mcdc:
         if n > args.max_exact:
@@ -134,18 +151,21 @@ def main():
                   "(run without --csv for details)", file=sys.stderr)
 
     if template:
-        # a relative OUTPUT_FILENAME goes into the output folder, an absolute one is kept
-        path = args.output_dir / output_filename(template, decision, args.expression)
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "w", encoding="utf-8", newline="\n") as f:
-                f.write(render_scenario(template, decision, tests, args.expression,
-                                        command_line(sys.argv[1:])))
-        except OSError as e:
-            parser.error(f"can't write the scenario: {e}")
-        # on stderr with --csv, so that the CSV output stays clean
-        print(f"\nScenario written to {path} ({len(tests)} test case(s))",
-              file=sys.stderr if args.csv else sys.stdout)
+        command = command_line(sys.argv[1:])
+        files = [("scenario", path, render_scenario)]
+        if list_path is not None:
+            files.append(("test list", list_path, render_test_list))
+        stream = sys.stderr if args.csv else sys.stdout     # so that the CSV output stays clean
+        print(file=stream)
+        for what, file_path, render in files:
+            try:
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(file_path, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(render(template, decision, tests, args.expression, command))
+            except OSError as e:
+                parser.error(f"can't write the {what}: {e}")
+            print(f"{what.capitalize()} written to {file_path} ({len(tests)} test case(s))",
+                  file=stream)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,10 @@
 # TEST_CASE_INPUT_SET (once per input), TEST_CASE_OUTPUT_SET, TEST_CASE_PROCESS,
 # TEST_CASE_OUTPUT_CHECK, TEST_CASE_END; then TEST_EPILOGUE.
 # Any text can be left out (nothing is written for it).
+#
+# Optional: a test list file, e.g. to call each test case. Add LIST_OUTPUT_FILENAME
+# to [settings] and TEST_LIST_PREAMBLE, TEST_LIST_CASE, TEST_LIST_EPILOGUE to
+# [format]; see input/test_setup_cpp_functions.toml.
 
 [variables]
 # Your own values: add, rename or remove them freely.

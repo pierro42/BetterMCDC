@@ -12,6 +12,7 @@ Run from the project folder:
     python -m unittest discover -s tests -v
 """
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -90,6 +91,35 @@ EXPECTED_AND3 = r"""// Uut "30": Z = a and b and c
 }
 // end
 """
+
+# The same template with a test list file
+LIST_TEMPLATE = TEMPLATE.replace(
+    'OUTPUT_FILENAME = "Test_${NAME}_${FAMILY}_${output_name}.cpp"\n',
+    'OUTPUT_FILENAME = "Test_${NAME}_${FAMILY}_${output_name}.cpp"\n'
+    'LIST_OUTPUT_FILENAME = "Test_${NAME}_${FAMILY}_${output_name}_list.cpp"\n') + r"""
+TEST_LIST_PREAMBLE = '''// ${NAME} list (${tool_command}): ${expression}
+BEGIN();
+'''
+TEST_LIST_CASE = '''  Test_${NAME}_${test_number}(); // row #${row}, expects ${output_value} (preset ${output_inverse})
+'''
+TEST_LIST_EPILOGUE = '''END(); // $$0
+'''
+"""
+
+# Same test cases, order and numbers as EXPECTED_AND3
+EXPECTED_AND3_LIST = r"""// Uut list (main.py x): Z = a and b and c
+BEGIN();
+  Test_Uut_5(); // row #4, expects FALSE (preset TRUE)
+  Test_Uut_6(); // row #6, expects FALSE (preset TRUE)
+  Test_Uut_7(); // row #7, expects FALSE (preset TRUE)
+  Test_Uut_8(); // row #8, expects TRUE (preset FALSE)
+END(); // $0
+"""
+
+
+def quote(path):
+    """A path as main.py writes it in ${tool_command}."""
+    return f'"{path}"' if " " in str(path) else str(path)
 
 
 class TemplateFiles(unittest.TestCase):
@@ -177,6 +207,28 @@ class ScenarioText(TemplateFiles):
                          f"{version}||{version} ")
         self.assertEqual(mcdc.output_filename(template, decision, AND3), f"v{version}.cpp")
 
+    def test_test_list(self):
+        """With LIST_OUTPUT_FILENAME, the test list gives TEST_LIST_PREAMBLE,
+        TEST_LIST_CASE once per test case, with the same order, ${test_number},
+        ${row} and values as the scenario, then TEST_LIST_EPILOGUE. The
+        scenario itself is unchanged by the list texts."""
+        decision = mcdc.parse_decision(AND3)
+        analysis = mcdc.analyse_mcdc(decision, "masking")
+        tests = [(i, *analysis.tests[i]) for i in analysis.tests]
+        template = self.load(LIST_TEMPLATE)
+        self.assertEqual(mcdc.render_scenario(template, decision, tests, AND3), EXPECTED_AND3)
+        self.assertEqual(mcdc.render_test_list(template, decision, tests, AND3, "main.py x"),
+                         EXPECTED_AND3_LIST)
+        self.assertEqual(mcdc.list_output_filename(template, decision, AND3),
+                         "Test_Uut_30_Z_list.cpp")
+
+    def test_no_test_list(self):
+        """Without LIST_OUTPUT_FILENAME there is no test list."""
+        decision = mcdc.parse_decision(AND3)
+        template = self.load(TEMPLATE)
+        self.assertIsNone(template.list_filename)
+        self.assertIsNone(mcdc.list_output_filename(template, decision, AND3))
+
 
 class TemplateErrors(TemplateFiles):
     """A wrong template is rejected when it is loaded, with the key named."""
@@ -219,6 +271,24 @@ class TemplateErrors(TemplateFiles):
     def test_not_toml(self):
         self.check("TEST_CASE_START = f\"\"\"{ printf\"\"\"\n", r"not a valid TOML file")
 
+    def test_test_list_errors(self):
+        """List texts without LIST_OUTPUT_FILENAME would be ignored: rejected.
+        The list texts and file name have the scopes of the scenario ones."""
+        self.check(self.BASE + "[format]\nTEST_LIST_PREAMBLE = 'x'\nTEST_LIST_CASE = 'y'\n",
+                   r"\[format\] TEST_LIST_PREAMBLE, TEST_LIST_CASE: the test list needs its "
+                   r"file name, \[settings\] LIST_OUTPUT_FILENAME")
+        with_list = self.BASE + "LIST_OUTPUT_FILENAME = 'l.cpp'\n"
+        self.check(with_list + "[format]\nTEST_LIST_CASE = '${input_name}'\n",
+                   r"TEST_LIST_CASE: \$\{input_name\} can only be used in TEST_CASE_INPUT_SET")
+        self.check(with_list + "[format]\nTEST_LIST_EPILOGUE = '${test_number}'\n",
+                   r"TEST_LIST_EPILOGUE: \$\{test_number\} can only be used in .*TEST_LIST_CASE")
+        self.check(self.BASE + "LIST_OUTPUT_FILENAME = '${tool_command}.cpp'\n",
+                   r"LIST_OUTPUT_FILENAME: \$\{tool_command\} can only be used in")
+        self.check(self.BASE + "LIST_OUTPUT_FILENAME = '${row}.cpp'\n",
+                   r"LIST_OUTPUT_FILENAME: \$\{row\} can only be used in")
+        self.check(self.BASE + "LIST_OUTPUT_FILENAME = '${nope}.cpp'\n",
+                   r"LIST_OUTPUT_FILENAME: unknown placeholder \$\{nope\}")
+
 
 class CommandLine(TemplateFiles):
     def run_main(self, *args, expression=AND3):
@@ -236,6 +306,62 @@ class CommandLine(TemplateFiles):
                           result.stdout)
             written = (out / "Test_Uut_30_Z.cpp").read_text(encoding="utf-8")
             self.assertEqual(written, EXPECTED_AND3)
+            # no LIST_OUTPUT_FILENAME: no test list
+            self.assertNotIn("Test list", result.stdout)
+            self.assertEqual([p.name for p in out.iterdir()], ["Test_Uut_30_Z.cpp"])
+
+    def test_gen_scen_writes_the_test_list(self):
+        """With LIST_OUTPUT_FILENAME, the scenario and the test list are both
+        written, in the same folder, and the list records the command line."""
+        template = self.write(LIST_TEMPLATE)
+        out = Path(self.dir.name) / "scenarios"
+        result = self.run_main("--mcdc", "-gen_scen", str(template), "--output-dir", str(out))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"Scenario written to {out / 'Test_Uut_30_Z.cpp'} (4 test case(s))\n"
+                      f"Test list written to {out / 'Test_Uut_30_Z_list.cpp'} (4 test case(s))",
+                      result.stdout)
+        self.assertEqual((out / "Test_Uut_30_Z.cpp").read_text(encoding="utf-8"), EXPECTED_AND3)
+        command = (f'main.py "{AND3}" --mcdc -gen_scen {quote(template)} '
+                   f'--output-dir {quote(out)}')
+        self.assertEqual((out / "Test_Uut_30_Z_list.cpp").read_text(encoding="utf-8"),
+                         EXPECTED_AND3_LIST.replace("main.py x", command))
+
+    def test_test_list_cannot_overwrite_the_scenario(self):
+        """A LIST_OUTPUT_FILENAME that names the scenario file is rejected
+        before the analysis, and nothing is written."""
+        template = self.write("[settings]\nOUTPUT_FILENAME = 'Z.cpp'\n"
+                              "LIST_OUTPUT_FILENAME = './${output_name}.cpp'\n")
+        out = Path(self.dir.name) / "out"
+        result = self.run_main("--mcdc", "-gen_scen", str(template), "--output-dir", str(out))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("the test list would overwrite the scenario", result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertFalse(out.exists())
+
+    def test_example_templates(self):
+        """Every template of the input folder writes its files. In
+        test_setup_cpp_functions.toml, the test list calls exactly the
+        functions that the scenario defines, in the same order."""
+        templates = sorted((ROOT / "input").glob("*.toml"))
+        self.assertIn("test_setup_cpp_functions.toml", [t.name for t in templates])
+        for template in templates:
+            with self.subTest(template=template.name):
+                out = Path(self.dir.name) / template.stem
+                result = self.run_main("--mcdc", "-gen_scen", str(template),
+                                       "--output-dir", str(out),
+                                       expression="Out = (a and b) or c")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("Scenario written to", result.stdout)
+                files = {p.name: p.read_text(encoding="utf-8") for p in out.iterdir()}
+                if template.name != "test_setup_cpp_functions.toml":
+                    self.assertEqual(len(files), 1)
+                    continue
+                scenario = files["Test_scenario_Mycode_UnderTest_30.cpp"]
+                test_list = files["Test_scenario_Mycode_UnderTest_30_list.cpp"]
+                defined = re.findall(r"^void (\w+)\(void\)$", scenario, re.M)
+                called = re.findall(r"^(\w+)\(\);$", test_list, re.M)
+                self.assertEqual(called[1:-1], defined)     # BEGIN_MACRO, END_MACRO around
+                self.assertEqual(len(defined), 4)
 
     def test_version_and_command_recorded(self):
         """--version prints the tool version; the scenario records the
@@ -248,7 +374,6 @@ class CommandLine(TemplateFiles):
         out = Path(self.dir.name) / "out"
         result = self.run_main("--mcdc", "-gen_scen", str(template), "--output-dir", str(out))
         self.assertEqual(result.returncode, 0, result.stderr)
-        quote = lambda path: f'"{path}"' if " " in str(path) else str(path)
         self.assertEqual((out / "rec.txt").read_text(encoding="utf-8"),
                          f'{mcdc.__version__} main.py "{AND3}" --mcdc -gen_scen '
                          f'{quote(template)} --output-dir {quote(out)}')

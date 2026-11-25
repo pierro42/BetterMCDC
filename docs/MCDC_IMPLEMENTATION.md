@@ -48,7 +48,7 @@ Retrieval URLs and dates are in [tests/SOURCES.md](../tests/SOURCES.md).
 | `mcdc/pair_search.py` | pair search for large expressions | §11 |
 | `mcdc/analysis.py` | engine choice | §12 |
 | `mcdc/report.py` | text / CSV output | §13 |
-| `mcdc/scenario.py` | test scenario file from a template | [SCENARIO_GENERATION.md](SCENARIO_GENERATION.md) |
+| `mcdc/scenario.py` | test scenario file, and optional test list file, from a template | [SCENARIO_GENERATION.md](SCENARIO_GENERATION.md) |
 | `mcdc/version.py` | tool version | — |
 | `main.py` | command line | — |
 
@@ -373,7 +373,7 @@ python -m unittest discover -s tests -v
 | Pair-search engine | `PairSearchEngine.*` | same coverable / impossible conclusions as the exact engine on every published case, in the three forms; published pairs pass the direct checks |
 | Engine cross-check | `AppendixCCrossCheck.*` | **not a published oracle**: both engines agree up to 8 inputs; above (up to 76 conditions), every condition ends covered or impossible with valid pairs; three forms |
 
-The last run was on 2026-11-24, with Python 3.12.4 on Windows 11: 72 tests (52 qualification, 18 scenario generation and tool version, 2 TOR traceability), all passed, in under a minute.
+The last run was on 2026-11-25, with Python 3.12.4 on Windows 11: 78 tests (52 qualification, 24 scenario generation and tool version, 2 TOR traceability), all passed, in under a minute.
 
 **Validation record:** to keep evidence of a run, use
 
@@ -437,5 +437,5 @@ A starting point for your TOR, with the code and tests that cover each requireme
 | TOR-10 | The tool shall identify unique-cause + masking independence pairs as defined in S2 §3.2.2, stated on the n-cube in §5.1 and §7.1 (edge transition and graph-coloring pair). | `tree.is_unique_cause_masking_pair`, `exact.independence_pairs` | `S2UniqueCauseMasking.*` |
 | TOR-11 | The tool shall evaluate `and then` / `or else` (and every and / or with `--short-circuit`) as short-circuit forms (S2 glossary), apply the definitions of TOR-04, TOR-05 and TOR-10 to the influence tree of S2 §3.1.2 with tree_xor (Figure 5), and show each input that a test doesn't evaluate as X. | `decision.py`, `tree.node_executed`, `tree.tree_xor`, `tree.independence`, `tree.canonical` | `ShortCircuit.*`, `S2AppendixC.test_response_profiles`, `S2Figures28To30.*` |
 | TOR-12 | For the decisions up to the exact-engine limit, the tool shall give a test set of minimal size. | `exact.minimal_mcdc_set` | `S2Figures28To30.test_figures_28_29_30`, `S1BuildingBlocks.*`, `S2MinimumNumberOfTests.test_minimal_sets_by_exhaustive_search` |
-| TOR-13 | The tool shall write a scenario file from a template as described in [SCENARIO_GENERATION.md](SCENARIO_GENERATION.md): the texts in the documented order, one input text per input, the values written with the TRUE / FALSE / NOT_EVALUATED texts, the expected output of each test case; and reject a template with an unknown key, an unknown or out-of-scope placeholder or an invalid `$`. | `scenario.py`, `main.py` | `ScenarioText.*`, `TemplateErrors.*`, `CommandLine.test_gen_scen_writes_the_file`, `CommandLine.test_template_error_stops_before_writing` |
+| TOR-13 | The tool shall write a scenario file from a template as described in [SCENARIO_GENERATION.md](SCENARIO_GENERATION.md): the texts in the documented order, one input text per input, the values written with the TRUE / FALSE / NOT_EVALUATED texts, the expected output of each test case; when the template gives `LIST_OUTPUT_FILENAME`, also write the test list (`TEST_LIST_PREAMBLE`, `TEST_LIST_CASE` once per test case with the scenario's order and numbers, `TEST_LIST_EPILOGUE`); and reject a template with an unknown key, an unknown or out-of-scope placeholder, an invalid `$`, list texts without `LIST_OUTPUT_FILENAME`, or a test list that names the scenario file. | `scenario.py`, `main.py` | `ScenarioText.*`, `TemplateErrors.*`, `CommandLine.test_gen_scen_writes_the_file`, `CommandLine.test_gen_scen_writes_the_test_list`, `CommandLine.test_test_list_cannot_overwrite_the_scenario`, `CommandLine.test_example_templates`, `CommandLine.test_template_error_stops_before_writing` |
 | TOR-14 | The tool shall give its version (`--version`), and write the version and the command line into the scenario where the template asks for them (`${tool_version}`, `${tool_command}`). | `version.py`, `main.py`, `scenario.py` | `CommandLine.test_version_and_command_recorded`, `ScenarioText.test_tool_version_and_command`, `TemplateErrors.test_placeholder_out_of_scope` |

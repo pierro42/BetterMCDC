@@ -7,7 +7,7 @@ Command-line tool that takes a Boolean expression and gives the test cases neede
 - **Truth table:** the full truth table, with the variable names as column headers.
 - **MC/DC test set:** the minimal set of test cases, with expected results, that satisfies MC/DC (Modified Condition / Decision Coverage), in any of the three forms defined by the FAA report: masking, unique-cause + masking, or unique-cause.
 - **Repeated variables:** expressions where a variable appears more than once, such as `(a and b) or (not c and a)`, are handled.
-- **Test scenario file:** optionally, the test cases written as a scenario file (C++, or any other text format) through a user template. See [docs/SCENARIO_GENERATION.md](docs/SCENARIO_GENERATION.md).
+- **Test scenario file:** optionally, the test cases written as a scenario file (C++, or any other text format) through a user template, and, if the template asks for it, a test list file (e.g. a call to each test function). See [docs/SCENARIO_GENERATION.md](docs/SCENARIO_GENERATION.md).
 
 The MC/DC definitions come from the FAA and NASA reports used in certification. [docs/MCDC_IMPLEMENTATION.md](docs/MCDC_IMPLEMENTATION.md) describes how they are implemented, and [tests/SOURCES.md](tests/SOURCES.md) traces the qualification test suite to those reports. [docs/IEC_61508_ADEQUACY.md](docs/IEC_61508_ADEQUACY.md) maps the tool to the support-tool requirements of IEC 61508-3, and [docs/DO178C_DO330_ADEQUACY.md](docs/DO178C_DO330_ADEQUACY.md) to DO-178C / DO-330 (preliminary: from the public FAA documents).
 
@@ -119,8 +119,8 @@ MC/DC is about *conditions*: each occurrence of a variable in the expression is 
 | `--short-circuit` | evaluate every and / or (also `et`, `ou`, `&&`, `\|\|`) as a short-circuit form, as in C |
 | `--csv` | print the table as CSV (the summary is not printed) |
 | `--max-exact N` | number of inputs up to which the whole truth table is analysed (default 10); see [Large expressions](#large-expressions) |
-| `-gen_scen TEMPLATE` (or `--gen-scen`) | also write a test scenario file; see [docs/SCENARIO_GENERATION.md](docs/SCENARIO_GENERATION.md) |
-| `--output-dir DIR` | folder for the scenario file (default: `output/` next to `main.py`) |
+| `-gen_scen TEMPLATE` (or `--gen-scen`) | also write a test scenario file, and a test list file if the template has `LIST_OUTPUT_FILENAME`; see [docs/SCENARIO_GENERATION.md](docs/SCENARIO_GENERATION.md) |
+| `--output-dir DIR` | folder for the scenario and test list files (default: `output/` next to `main.py`) |
 | `--version` | print the tool version |
 
 ## Reading the MC/DC summary
@@ -232,6 +232,7 @@ mcdc/                      the tool
   version.py               tool version
 input/test_setup_cpp.toml  example scenario template (C++)
 input/test_setup_python.toml  example scenario template (Python)
+input/test_setup_cpp_functions.toml  example template: one function per test case, and a test list (C++)
 examples/                  example code under test
 output/                    generated scenario files and validation records
 tests/                     qualification test suite (see tests/SOURCES.md)

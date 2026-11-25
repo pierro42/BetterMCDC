@@ -4,11 +4,14 @@ Test scenario generation from a user template (TOML file).
 
 The template has three tables:
   [variables]  user values, usable as ${NAME} in every text
-  [settings]   STARTING_TEST_NUMBER, TRUE, FALSE, NOT_EVALUATED, OUTPUT_FILENAME
+  [settings]   STARTING_TEST_NUMBER, TRUE, FALSE, NOT_EVALUATED, OUTPUT_FILENAME,
+               LIST_OUTPUT_FILENAME (optional: the test list file)
   [format]     the texts written to the scenario (all optional):
                TEST_PREAMBLE, TEST_CASE_START, TEST_CASE_INPUT_SET,
                TEST_CASE_OUTPUT_SET, TEST_CASE_PROCESS,
-               TEST_CASE_OUTPUT_CHECK, TEST_CASE_END, TEST_EPILOGUE
+               TEST_CASE_OUTPUT_CHECK, TEST_CASE_END, TEST_EPILOGUE;
+               and to the test list (only with LIST_OUTPUT_FILENAME):
+               TEST_LIST_PREAMBLE, TEST_LIST_CASE, TEST_LIST_EPILOGUE
 
 Placeholders are ${name} (Python string.Template); $$ is a literal $.
 ${tool_version} and ${tool_command} record the tool version and the
@@ -24,11 +27,17 @@ The scenario is written in this order:
       TEST_CASE_OUTPUT_CHECK
       TEST_CASE_END
   TEST_EPILOGUE
+
+and the test list, a second file that can e.g. call each test case:
+
+  TEST_LIST_PREAMBLE
+  TEST_LIST_CASE               once per test case, same order and numbers
+  TEST_LIST_EPILOGUE
 """
 
 import string
 import tomllib
-from typing import Dict, NamedTuple
+from typing import Dict, NamedTuple, Optional
 
 from .tree import executed_inputs
 from .version import __version__
@@ -47,8 +56,13 @@ FORMAT_KEYS = {
     "TEST_CASE_OUTPUT_CHECK": _PER_TEST,
     "TEST_CASE_END": _PER_TEST,
     "TEST_EPILOGUE": _GLOBAL,
+    "TEST_LIST_PREAMBLE": _GLOBAL,
+    "TEST_LIST_CASE": _PER_TEST,
+    "TEST_LIST_EPILOGUE": _GLOBAL,
 }
-SETTING_KEYS = ("STARTING_TEST_NUMBER", "TRUE", "FALSE", "NOT_EVALUATED", "OUTPUT_FILENAME")
+LIST_KEYS = ("TEST_LIST_PREAMBLE", "TEST_LIST_CASE", "TEST_LIST_EPILOGUE")
+SETTING_KEYS = ("STARTING_TEST_NUMBER", "TRUE", "FALSE", "NOT_EVALUATED", "OUTPUT_FILENAME",
+                "LIST_OUTPUT_FILENAME")
 _BUILTIN = _INPUT
 
 
@@ -60,6 +74,7 @@ class ScenarioTemplate(NamedTuple):
     filename: string.Template                # OUTPUT_FILENAME
     texts: Dict[str, string.Template]        # [format], every key present
     not_evaluated: str = "0"                 # text for an input the test doesn't evaluate
+    list_filename: Optional[string.Template] = None   # LIST_OUTPUT_FILENAME, if given
 
 
 def _table(data, name):
@@ -145,11 +160,40 @@ def load_template(path):
         if not isinstance(value, str):
             raise ValueError(f"[format] {key} must be a text, e.g. {key} = '''...'''")
         compiled[key] = _compile(value, f"[format] {key}", allowed | scope)
-    return ScenarioTemplate(variables, start, true, false, filename, compiled, not_evaluated)
+
+    # the test list is optional; its texts alone would be silently ignored
+    list_filename = None
+    if "LIST_OUTPUT_FILENAME" in settings:
+        list_filename = _compile(_text(settings["LIST_OUTPUT_FILENAME"],
+                                       "[settings] LIST_OUTPUT_FILENAME"),
+                                 "[settings] LIST_OUTPUT_FILENAME", allowed | _FILENAME)
+    else:
+        given = [key for key in LIST_KEYS if key in texts]
+        if given:
+            raise ValueError(f"[format] {', '.join(given)}: the test list needs its file "
+                             f"name, [settings] LIST_OUTPUT_FILENAME")
+    return ScenarioTemplate(variables, start, true, false, filename, compiled, not_evaluated,
+                            list_filename)
 
 
 def _expression_text(expression):
     return " ".join(expression.splitlines()).strip()
+
+
+def _common_values(template, decision, expression, command):
+    """Placeholders that have the same value in every text."""
+    return dict(template.variables, expression=_expression_text(expression),
+                output_name=decision.output, tool_version=__version__, tool_command=command)
+
+
+def _test_cases(template, common, tests):
+    """(inputs, placeholders) of each test case, numbered from
+    STARTING_TEST_NUMBER: the scenario and the test list use the same
+    numbers."""
+    value = lambda v: template.true if v else template.false
+    for n, (row, inputs, result) in enumerate(tests):
+        yield inputs, dict(common, test_number=str(template.start + n), row=str(row + 1),
+                           output_value=value(result), output_inverse=value(not result))
 
 
 def render_scenario(template, decision, tests, expression, command=""):
@@ -158,13 +202,9 @@ def render_scenario(template, decision, tests, expression, command=""):
     `expression` is the expression as the user typed it, `command` the
     command line that produced the scenario (${tool_command})."""
     value = lambda v: template.true if v else template.false
-    common = dict(template.variables, expression=_expression_text(expression),
-                  output_name=decision.output, tool_version=__version__,
-                  tool_command=command)
+    common = _common_values(template, decision, expression, command)
     out = [template.texts["TEST_PREAMBLE"].substitute(common)]
-    for n, (row, inputs, result) in enumerate(tests):
-        case = dict(common, test_number=str(template.start + n), row=str(row + 1),
-                    output_value=value(result), output_inverse=value(not result))
+    for inputs, case in _test_cases(template, common, tests):
         out.append(template.texts["TEST_CASE_START"].substitute(case))
         evaluated = executed_inputs(decision, inputs)
         for name, v, ex in zip(decision.names, inputs, evaluated):
@@ -178,7 +218,31 @@ def render_scenario(template, decision, tests, expression, command=""):
     return "".join(out)
 
 
+def render_test_list(template, decision, tests, expression, command=""):
+    """Test list text for the same `tests` as render_scenario:
+    TEST_LIST_PREAMBLE, TEST_LIST_CASE once per test case (same order and
+    ${test_number} as the scenario), TEST_LIST_EPILOGUE."""
+    common = _common_values(template, decision, expression, command)
+    out = [template.texts["TEST_LIST_PREAMBLE"].substitute(common)]
+    for _, case in _test_cases(template, common, tests):
+        out.append(template.texts["TEST_LIST_CASE"].substitute(case))
+    out.append(template.texts["TEST_LIST_EPILOGUE"].substitute(common))
+    return "".join(out)
+
+
+def _filename(name, template, decision, expression):
+    return name.substitute(template.variables, expression=_expression_text(expression),
+                           output_name=decision.output, tool_version=__version__)
+
+
 def output_filename(template, decision, expression):
     """OUTPUT_FILENAME with its placeholders replaced."""
-    return template.filename.substitute(template.variables, expression=_expression_text(expression),
-                                        output_name=decision.output, tool_version=__version__)
+    return _filename(template.filename, template, decision, expression)
+
+
+def list_output_filename(template, decision, expression):
+    """LIST_OUTPUT_FILENAME with its placeholders replaced, or None when
+    the template has no test list."""
+    if template.list_filename is None:
+        return None
+    return _filename(template.list_filename, template, decision, expression)
