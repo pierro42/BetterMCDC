@@ -31,7 +31,8 @@ def build_tree(expr, occurrences, short_circuit_at=None):
     index), const (a = value), not (a = child), and / or / andthen / orelse
     / eq / ne (a = left child, b = right child). n-ary and/or are split into
     a left-associated chain of binary operators, as in the report:
-    a and b and c = (a and b) and c.
+    a and b and c = (a and b) and c. The xor operator ^ (ast.BinOp, the only
+    one parse_decision accepts) is an "ne" node, as != is.
 
     short_circuit_at(left, right) tells whether the operator between two
     operands of an ast.BoolOp is a short-circuit form.
@@ -61,6 +62,9 @@ def build_tree(expr, occurrences, short_circuit_at=None):
                 op = {"and": "andthen", "or": "orelse"}[kind] if sc else kind
                 left = add(op, left, visit(value))
             return left
+        if isinstance(node, ast.BinOp):
+            # ^ is the only binary operator parse_decision accepts
+            return add("ne", visit(node.left), visit(node.right))
         # Compare with a single operator (checked by parse_decision)
         kind = "eq" if isinstance(node.ops[0], ast.Eq) else "ne"
         return add(kind, visit(node.left), visit(node.comparators[0]))

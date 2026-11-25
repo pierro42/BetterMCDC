@@ -8,9 +8,11 @@ MC/DC (Modified Condition / Decision Coverage) reduction.
 The expression is given as a string, "Output = <expression>", e.g.
     "Outvar = (cond1 or cond2_mem) and (not cond1 and cond3)"
 Allowed: variable names, and, or, not, ==, != (xor), True, False, ( ).
-French keywords are accepted too: et, ou, non (any case), e.g.
+xor and ^ are accepted for != (ouexclusif in French); an xor operand of
+== or != must be in parentheses, e.g. (a xor b) == c.
+French keywords are accepted too: et, ou, non, ouexclusif (any case), e.g.
     "Outvar = (cond1 ou cond2_mem) et (non cond1 et cond3)"
-so et, ou and non can't be used as variable names.
+so et, ou, non, ouexclusif and xor can't be used as variable names.
 &&, || and ! are accepted as Boolean and / or / not (both operands are
 part of the decision, exactly like and / or), e.g.
     "Outvar = (cond1 || cond2_mem) && (!cond1 && cond3)"

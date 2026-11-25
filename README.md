@@ -83,25 +83,26 @@ The expression is one quoted argument, `"Output = <expression>"`. `Output` is th
 | not | `not`, `non`, `!` |
 | and, short-circuit | `and then` (or any and with `--short-circuit`) |
 | or, short-circuit | `or else` (or any or with `--short-circuit`) |
-| xor | `!=` |
+| xor | `!=`, `xor`, `^`, `ouexclusif` |
 | equivalence (xnor) | `==` |
 | constants | `True`, `False` |
 | grouping | `( )` |
 
 Note: French spellings are added for my personnal case.
 
-- **Variable names:** letters, digits and `_`, not starting with a digit. `et`, `ou` and `non` are keywords in any case, so they can't be variable names.
+- **Variable names:** letters, digits and `_`, not starting with a digit. `et`, `ou`, `non` and `ouexclusif` are keywords in any case, and `xor` in lower case like `and`, `or` and `not`, so they can't be variable names.
 - **Mixing spellings:** allowed. `(a ou b) && !c` is valid.
-- **Precedence:** as in Python: `not`, then `and`, then `or`. `==` and `!=` bind tighter than `not`, so add parentheses when you mean `(not a) == b`.
+- **Precedence:** as in Python: `not`, then `and`, then `or`. `==`, `!=` and xor bind tighter than `not`, so add parentheses when you mean `(not a) == b`. `a xor b xor c` is `(a xor b) xor c`.
 - **`!`:** binds tighter than every operator, as in C, so `!a == b` means `(!a) == b`.
 - **Evaluation:** by default, `and` / `&&` and `or` / `||` are Boolean: both operands are always evaluated. `and then` and `or else` are short-circuit forms: the right operand is evaluated only when the left one doesn't decide the result. To analyse C code, where `&&` and `||` are short-circuit, add `--short-circuit`: every and / or is then evaluated that way. See [Short-circuit evaluation](#short-circuit-evaluation).
 - **`then` and `else`:** right after `and` / `or` they are part of the operator, so they can't be variable names there.
 - **Chained comparisons:** `a != b != c` is rejected as ambiguous. Write `(a != b) != c`.
+- **xor with `==` or `!=`:** `a ^ b == c` is rejected: Python reads it `(a ^ b) == c` and C reads it `a ^ (b == c)`. Write the one you mean, with parentheses.
 
 Errors are reported with a message; syntax errors give the column in the text as you typed it:
 
 ```
-main.py: error: invalid expression: unsupported syntax: 'a + b' (allowed: names, and/et/&&, or/ou/||, and then, or else, not/non/!, ==, !=, True, False)
+main.py: error: invalid expression: unsupported syntax: 'a + b' (allowed: names, and/et/&&, or/ou/||, and then, or else, not/non/!, ==, !=/xor/ouexclusif/^, True, False)
 ```
 
 ### Conditions and repeated variables
@@ -269,11 +270,11 @@ It writes `output/validation_record_<version>_<date>-<time>.md`; see [docs/IEC_6
 - **Release:** pushing a tag `vX.Y.Z` on a commit of `main`, equal to the version in `mcdc/version.py`, runs the same tests, then publishes a GitHub release with the validation record of every platform:
 
 ```bash
-git tag v1.0.1
+git tag v1.1.0
 ```
 
 ```bash
-git push origin v1.0.1
+git push origin v1.1.0
 ```
 
 To keep `main` tested, protect it in the repository settings (Settings > Branches): require a pull request and the "Tests" checks to pass before merging.

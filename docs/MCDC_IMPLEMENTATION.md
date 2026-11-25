@@ -66,21 +66,26 @@ The text `Output = <expression>` is first translated into Python syntax, then pa
 - `et`, `ou`, `non` (any case) → `and`, `or`, `not`;
 - `&&`, `||` → `and`, `or`;
 - `!` → `(not …)` around its operand, so that it binds tighter than every operator, as in C;
+- `xor`, `ouexclusif` (any case) → `^`, Python's xor, kept as written (`^` is accepted as such). On Booleans it is `!=`, and it becomes the same `ne` node (§4.3);
 - `and then`, `or else` → `and`, `or`, recorded as short-circuit forms (§9). The k-th `and` / `or` of the Python text is the k-th operator written, which tells the tree builder which operators are short-circuit forms.
 
 **Whitelist:** only these node types are accepted, and anything else is rejected with a message:
 - the Boolean operators `and`, `or`, `not` (and the short-circuit forms `and then`, `or else`);
 - one-operator comparisons `==` and `!=`;
+- the binary operator `^` (xor); any other binary or unary operator (`&`, `+`, `-`, `~`, `<`…) is rejected with the expression that uses it;
 - names;
 - the constants `True` and `False`.
 
 **Rejected explicitly:**
 - chained comparisons (`a != b != c`);
+- a `^` operand of `==` or `!=` without parentheses (`a ^ b == c`): Python reads it `(a ^ b) == c`, C reads it `a ^ (b == c)`, so the tool asks for parentheses;
 - non-Boolean constants;
 - an expression with no input;
 - an output name that is also an input.
 
 **Error positions:** syntax errors are reported at their column in the text as typed, mapped back through the translation.
+
+**Displayed text:** the decision line of the report is the expression written with the condition labels and the spellings typed (`et`, `&&`, `xor`…). Python's `ast.unparse` drops the parentheses Python doesn't need, so the tool keeps the ones a reader of the C precedence needs: around a `==`, `!=` or `^` under a not (`!(a == b)`, not `!a == b`), and around a `^` under `==` or `!=`. Read again, the displayed text gives the same tree (`InputSyntax.test_display_keeps_meaning`).
 
 ### 4.2 Conditions
 
@@ -99,7 +104,7 @@ The parsed expression becomes a list of nodes `(kind, a, b)`, children before pa
 | `not` | negation of child `a` |
 | `and`, `or` | binary operator on children `a`, `b` |
 | `andthen`, `orelse` | short-circuit forms: same result, right child `b` evaluated only when needed (§9) |
-| `eq`, `ne` | `==` (xnor) and `!=` (xor) on children `a`, `b` |
+| `eq`, `ne` | `==` (xnor) and `!=` / `^` / `xor` / `ouexclusif` (xor) on children `a`, `b`; `a ^ b ^ c` is `(a ^ b) ^ c` |
 
 **Operator chains:** an n-ary `and` / `or` is split into a left-associated chain of binary operators (`a and b and c` = `(a and b) and c`), because S2's graph-coloring definition works on binary operators.
 
@@ -368,7 +373,7 @@ python -m unittest discover -s tests -v
 | Pair-search engine | `PairSearchEngine.*` | same coverable / impossible conclusions as the exact engine on every published case, in the three forms; published pairs pass the direct checks |
 | Engine cross-check | `AppendixCCrossCheck.*` | **not a published oracle**: both engines agree up to 8 inputs; above (up to 76 conditions), every condition ends covered or impossible with valid pairs; three forms |
 
-The last run was on 2026-11-17, with Python 3.12.4 on Windows 11: 68 tests (48 qualification, 18 scenario generation and tool version, 2 TOR traceability), all passed, in under a minute.
+The last run was on 2026-11-24, with Python 3.12.4 on Windows 11: 72 tests (52 qualification, 18 scenario generation and tool version, 2 TOR traceability), all passed, in under a minute.
 
 **Validation record:** to keep evidence of a run, use
 
@@ -420,7 +425,7 @@ A starting point for your TOR, with the code and tests that cover each requireme
 
 | Id | Requirement | Code | Verified by |
 |---|---|---|---|
-| TOR-01 | The tool shall accept a decision written with and/or/not (also et/ou/non and &&/\|\|/!), and then, or else, ==, !=, True, False and parentheses, and reject any other syntax with a message. | `decision.py` | `InputSyntax.*`, all cases parsed in `test_qualification.py` |
+| TOR-01 | The tool shall accept a decision written with and/or/not (also et/ou/non and &&/\|\|/!), and then, or else, ==, != (also xor/ouexclusif/^), True, False and parentheses, reject any other syntax with a message, reject a ^ operand of == or != without parentheses, and display the decision with the parentheses the C precedence needs. | `decision.py` | `InputSyntax.*`, all cases parsed in `test_qualification.py` |
 | TOR-02 | The tool shall treat each occurrence of a variable as a separate condition. | `decision.py`, `tree.py` | `S2Definitions.test_figure_10_coupled`, `test_section_3_2_1_coupled_unique_cause`, `S2AppendixC.test_condition_counts` |
 | TOR-03 | The tool shall compute the truth table of the decision. | `tree.truth_table` | `S2AppendixC.test_response_profiles`, `S1BuildingBlocks.*` |
 | TOR-04 | The tool shall identify unique-cause independence pairs as defined in S2 §3.1.1. | `tree.is_unique_cause_pair`, `exact.independence_pairs` | `S2Definitions.test_section_3_1_1_unique_cause_pairs`, `test_section_3_2_1_coupled_unique_cause`, `S1WorkedExamples.test_example_2_and_2a` |

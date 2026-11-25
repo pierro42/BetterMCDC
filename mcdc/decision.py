@@ -3,8 +3,14 @@
 Input language: "Output = <boolean expression>" -> Decision.
 
 Accepted: variable names, and / et / &&, or / ou / ||, not / non / !,
-== and != (xor), True, False and parentheses. Each occurrence of a variable
-is a condition (a#1, a#2 when a variable is repeated).
+== (xnor), != / xor / ouexclusif / ^ (xor), True, False and parentheses.
+Each occurrence of a variable is a condition (a#1, a#2 when a variable is
+repeated).
+
+xor, ouexclusif and ^ are the same operator as != on Booleans; they become
+Python's ^ and an "ne" node of the tree. Python and C don't give ^ the same
+precedence against == and != (Python reads a ^ b == c as (a ^ b) == c, C as
+a ^ (b == c)), so a ^ operand of == or != must be in parentheses.
 
 Short-circuit forms ([S2] glossary): "and then" and "or else" always
 evaluate their right operand only when needed. With short_circuit=True,
@@ -13,6 +19,7 @@ every and / or (also written et / ou / && / ||) is a short-circuit form, as
 """
 
 import ast
+import copy
 import io
 import re
 import tokenize
@@ -36,19 +43,25 @@ class Decision(NamedTuple):
 
 # The only syntax accepted in an expression
 _ALLOWED = (ast.BoolOp, ast.And, ast.Or, ast.UnaryOp, ast.Not,
-            ast.Compare, ast.Eq, ast.NotEq, ast.Name, ast.Load, ast.Constant)
-_ALLOWED_TEXT = ("names, and/et/&&, or/ou/||, and then, or else, not/non/!, ==, !=, "
-                 "True, False")
+            ast.Compare, ast.Eq, ast.NotEq, ast.BinOp, ast.BitXor,
+            ast.Name, ast.Load, ast.Constant)
+_ALLOWED_TEXT = ("names, and/et/&&, or/ou/||, and then, or else, not/non/!, ==, "
+                 "!=/xor/ouexclusif/^, True, False")
 _SHORT_CIRCUIT_WORDS = {"and": "then", "or": "else"}
 
 _FRENCH = {"et": "and", "ou": "or", "non": "not"}
 _TO_FRENCH = {v: k for k, v in _FRENCH.items()}
+# xor (lower case, like and / or / not) and ouexclusif (any case, like the
+# other French words) are written ^ for Python
+_XOR = "xor"
+_XOR_FRENCH = "ouexclusif"
 # "!" becomes "(not " and its operand gets a ")": as in C, ! binds tighter
 # than every other operator (!a == b is (!a) == b)
 _SYMBOLS = {"&&": " and ", "||": " or ", "!": "(not "}
 _TO_SYMBOLS = {"and": "&&", "or": "||", "not": "!"}
 # tokens after which a "!" is a unary not ("then" / "else" end "and then" / "or else")
-_BEFORE_NOT = {"(", "=", "==", "!=", "!", "&", "|", "and", "or", "not", "then", "else"}
+_BEFORE_NOT = {"(", "=", "==", "!=", "!", "&", "|", "^", "and", "or", "not", "then", "else",
+               _XOR}
 
 
 def _operand_end(tokens, i):
@@ -71,8 +84,8 @@ def _operand_end(tokens, i):
 def _replace_words(text, replace):
     """Replace whole words of a one-line `text`, found with Python's
     tokenizer so that names such as `route` or `cond_et` are left untouched.
-    The operators && and || (two adjacent & or | tokens) and ! count as words;
-    the operand of a replaced ! is closed with ")".
+    The operators && and || (two adjacent & or | tokens), ! and ^ count as
+    words; the operand of a replaced ! is closed with ")".
     `replace(word)` returns the new word, or None to keep it.
 
     Returns (new_text, shifts) where shifts lists (column in new_text,
@@ -94,7 +107,8 @@ def _replace_words(text, replace):
             j = _operand_end(tokens, i + 1)
             previous = tokens[i - 1] if i else None
             unary = (previous is None or previous.string in _BEFORE_NOT
-                     or previous.string.lower() in _FRENCH)
+                     or previous.string.lower() in _FRENCH
+                     or previous.string.lower() == _XOR_FRENCH)
             if j is None and i + 1 < len(tokens) and tokens[i + 1].string == "(":
                 continue            # unclosed "(": left to the parser's message
             if j is None or not unary:
@@ -127,6 +141,8 @@ def _replace_words(text, replace):
             new = replace("!")
             if new is not None and i not in wrapped:
                 new = " not "
+        elif tok.string == "^":     # alone; "^=" is a separate token
+            new = replace("^")
         else:
             new = None
         if i in closers:
@@ -141,6 +157,49 @@ def _replace_words(text, replace):
     return "".join(out), shifts
 
 
+_MARK = "\x00"                     # can't be in a name: used for placeholders
+
+
+def _unparse(expr):
+    """ast.unparse, keeping the parentheses that a reader of the C
+    precedence needs: around a ==, != or ^ under a not (C's ! applies to the
+    next operand only), and around a ^ under == or != (C reads ^ after == and
+    !=). ast.unparse drops them because Python doesn't need them."""
+    parts = []
+
+    class Keep(ast.NodeTransformer):
+        def hold(self, node, kinds):
+            if not isinstance(node, kinds):
+                return node
+            parts.append(node)
+            return ast.Name(id=f"{_MARK}{len(parts) - 1}{_MARK}", ctx=ast.Load())
+
+        def visit_UnaryOp(self, node):
+            self.generic_visit(node)
+            node.operand = self.hold(node.operand, (ast.Compare, ast.BinOp))
+            return node
+
+        def visit_Compare(self, node):
+            self.generic_visit(node)
+            node.left = self.hold(node.left, ast.BinOp)
+            node.comparators = [self.hold(c, ast.BinOp) for c in node.comparators]
+            return node
+
+    text = ast.unparse(Keep().visit(copy.deepcopy(expr)))
+    # a part is held after the parts inside it, so replace the outer ones first
+    for k in reversed(range(len(parts))):
+        text = text.replace(f"{_MARK}{k}{_MARK}", f"({ast.unparse(parts[k])})")
+    return text
+
+
+def _parenthesized(source, node):
+    """Is `node` written in parentheses in the one-line `source`, given as
+    UTF-8 bytes (ast offsets are in UTF-8 bytes)?"""
+    before = source[:node.col_offset].rstrip()
+    after = source[node.end_col_offset:].lstrip()
+    return before.endswith(b"(") and after.startswith(b")")
+
+
 def parse_decision(text, short_circuit=False):
     """Parse "Output = <boolean expression>" into a Decision.
     With short_circuit=True every and / or is a short-circuit form ("and
@@ -149,8 +208,15 @@ def parse_decision(text, short_circuit=False):
     text = " ".join(text.splitlines()).strip()
     used = set()                    # which alternative spellings the user wrote
     operators = []                  # (spelling, short-circuit) of each and / or, in order
+    xors = []                       # spelling of each ^ / xor / ouexclusif, in order
 
     def to_python(word):
+        if word == "^":
+            xors.append(word)
+            return None
+        if word == _XOR or word.lower() == _XOR_FRENCH:
+            xors.append(word)
+            return " ^ "
         if word in ("and then", "or else"):
             operators.append((word, True))
             return f" {word.split()[0]} "
@@ -188,10 +254,13 @@ def parse_decision(text, short_circuit=False):
     else:
         raise ValueError("expected 'Output = <expression>'")
 
+    # an operator (ast.USub, ast.Lt, ast.BitAnd...) has no text of its own:
+    # quote the expression that uses it
+    parent = {id(child): node for node in ast.walk(expr) for child in ast.iter_child_nodes(node)}
     for node in ast.walk(expr):
         if not isinstance(node, _ALLOWED):
-            raise ValueError(f"unsupported syntax: '{ast.unparse(node)}' "
-                             f"(allowed: {_ALLOWED_TEXT})")
+            text = ast.unparse(node) or ast.unparse(parent.get(id(node), expr))
+            raise ValueError(f"unsupported syntax: '{text}' (allowed: {_ALLOWED_TEXT})")
         if isinstance(node, ast.Constant) and not isinstance(node.value, bool):
             raise ValueError(f"only True and False are allowed as constants, "
                              f"not '{ast.unparse(node)}'")
@@ -199,6 +268,15 @@ def parse_decision(text, short_circuit=False):
             # Python reads a != b != c as (a != b) and (b != c)
             raise ValueError(f"chained comparison '{ast.unparse(node)}' is ambiguous, "
                              f"add parentheses, e.g. (a != b) != c")
+        if isinstance(node, ast.Compare):
+            source = python_text.encode("utf-8")
+            for operand in [node.left] + node.comparators:
+                if isinstance(operand, ast.BinOp) and not _parenthesized(source, operand):
+                    # Python reads a ^ b == c as (a ^ b) == c, C as a ^ (b == c)
+                    written = " ".join(ast.get_source_segment(python_text, node).split())
+                    raise ValueError(f"'{written}' mixes xor with == or != without "
+                                     f"parentheses, which Python and C read differently: "
+                                     f"write (a ^ b) == c or a ^ (b == c)")
 
     # Every occurrence of a variable is a condition, in reading order
     occurrences = sorted((node for node in ast.walk(expr) if isinstance(node, ast.Name)),
@@ -235,6 +313,7 @@ def parse_decision(text, short_circuit=False):
     # spelling the user used (French, !)
     label_iter = iter(labels)
     operator_iter = iter(operators)
+    xor_iter = iter(xors)
     spelling = {}
     if "french" in used:
         spelling.update(_TO_FRENCH)
@@ -247,9 +326,12 @@ def parse_decision(text, short_circuit=False):
         if word in ("and", "or"):
             typed = next(operator_iter)[0]
             return None if typed == word else typed
+        if word == "^":
+            typed = next(xor_iter)
+            return None if typed == word else typed
         return spelling.get(word)
 
-    label_text = _replace_words(ast.unparse(expr), display)[0]
+    label_text = _replace_words(_unparse(expr), display)[0]
     label_text = re.sub(r"!\s+", "!", label_text)       # "! a" -> "!a" ("!=" has no space)
 
     nodes, leaf = build_tree(expr, occurrences, short_circuit_at)

@@ -24,6 +24,7 @@ Run from the project folder:
 import csv
 import itertools
 import math
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -943,7 +944,6 @@ class InputSyntax(unittest.TestCase):
     [S1]/[S2]."""
 
     def test_symbols_equal_keywords(self):
-        import re
         for text in ALL_EXPRESSIONS:
             # and then / or else have no symbol: they are kept
             symbols = re.sub(r"\bor\b(?! else)", "||", re.sub(r"\band\b(?! then)", "&&", text))
@@ -970,6 +970,79 @@ class InputSyntax(unittest.TestCase):
             with self.subTest(text=symbols):
                 self.assertEqual(mcdc.parse_decision(symbols).nodes,
                                  mcdc.parse_decision(keywords).nodes)
+
+    def test_xor_spellings_equal_not_equal(self):
+        """xor, ^ and ouexclusif (in any case) are the xor operator !=: every
+        published case written with != (XOR2 [S1] Table 7, EX3, S2_FIG8)
+        gives the same conditions, truth table and pairs with each spelling."""
+        cases = [text for text in ALL_EXPRESSIONS if "!=" in text]
+        self.assertGreaterEqual(len(cases), 3)
+        for text in cases:
+            for spelling in ("xor", "^", "ouexclusif", "OuExclusif"):
+                written = text.replace("!=", spelling)
+                for mode in mcdc.MODES:
+                    with self.subTest(text=written, mode=mode):
+                        d1, rows1, pairs1 = exact(text, mode)
+                        d2, rows2, pairs2 = exact(written, mode)
+                        self.assertEqual(d2.nodes, d1.nodes)
+                        self.assertEqual(d2.conditions, d1.conditions)
+                        self.assertEqual(rows2, rows1)
+                        self.assertEqual(pairs2, pairs1)
+
+    def test_xor_precedence(self):
+        """^ (xor, ouexclusif) binds as != does: tighter than not, and, or;
+        ! still applies to the next operand only; a ^ b ^ c is (a ^ b) ^ c."""
+        for written, meaning in (("R = a ^ b ^ c", "R = (a != b) != c"),
+                                 ("R = a xor b ouexclusif c", "R = (a != b) != c"),
+                                 ("R = (a ^ b) == c", "R = (a != b) == c"),
+                                 ("R = a xor (b == c)", "R = a != (b == c)"),
+                                 ("R = a and b xor c", "R = a and (b != c)"),
+                                 ("R = a ^ b || c", "R = (a != b) or c"),
+                                 ("R = a and then b ^ c", "R = a and then (b != c)"),
+                                 ("R = not a xor b", "R = not (a != b)"),
+                                 ("R = !a ^ b", "R = (not a) != b"),
+                                 ("R = a ouexclusif !b", "R = a != (not b)")):
+            with self.subTest(text=written):
+                self.assertEqual(mcdc.parse_decision(written).nodes,
+                                 mcdc.parse_decision(meaning).nodes)
+
+    def test_xor_with_comparison_needs_parentheses(self):
+        """Python reads a ^ b == c as (a ^ b) == c and C as a ^ (b == c): a
+        xor operand of == or != without parentheses is rejected. Any other
+        operator is rejected with the expression that uses it."""
+        for text in ("R = a ^ b == c", "R = a == b xor c", "R = a != b ouexclusif c",
+                     "R = a == !b ^ c", "R = (a) ^ b == c", "R = a == (b ^ c) ^ d"):
+            with self.subTest(text=text):
+                with self.assertRaisesRegex(ValueError, "mixes xor with == or !="):
+                    mcdc.parse_decision(text)
+        for text, quoted in (("R = a & b", "a & b"), ("R = a + b", "a + b"),
+                             ("R = -a", "-a"), ("R = ~a", "~a"), ("R = a < b", "a < b"),
+                             ("R = a ^ b + c", "b + c")):
+            with self.subTest(text=text):
+                with self.assertRaisesRegex(ValueError,
+                                            re.escape(f"unsupported syntax: '{quoted}'")):
+                    mcdc.parse_decision(text)
+
+    def test_display_keeps_meaning(self):
+        """The decision text shown in the report is written with the
+        spellings the user typed, and keeps the parentheses that the
+        precedence of C needs: read again, it is the same decision."""
+        for text, shown in (("R = !(a == b)", "!(a == b)"), ("R = !(a ^ b)", "!(a ^ b)"),
+                            ("R = !a == b", "(!a) == b"), ("R = not (a == b)", "not (a == b)"),
+                            ("R = (a xor b) == c", "(a xor b) == c"),
+                            ("R = a ^ (b != c)", "a ^ (b != c)"),
+                            ("R = a ouexclusif b", "a ouexclusif b")):
+            with self.subTest(text=text):
+                self.assertEqual(mcdc.parse_decision(text).text, shown)
+        extra = ["R = !(a && b) == c", "R = !(a != b) ^ !c", "R = non (a ouexclusif b) et c",
+                 "R = (a ^ b) != (c xor d)", "R = a or else !(b ^ c)"]
+        for text in ALL_EXPRESSIONS + extra:
+            decision = mcdc.parse_decision(text)
+            if any("#" in label for label in decision.conditions):
+                continue                    # a#1 can't be read again as a name
+            with self.subTest(text=text):
+                again = mcdc.parse_decision(f"{decision.output} = {decision.text}")
+                self.assertEqual(again.nodes, decision.nodes)
 
 
 # ---------------------------------------------------------------------------
